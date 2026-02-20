@@ -1,0 +1,32 @@
+{
+  "name": "privateperps",
+  "version": "0.1.0",
+  "description": "PrivatePerps — Private Perpetual Trading on Solana Devnet via Arcium MPC",
+  "scripts": {
+    "build": "anchor build",
+    "test": "anchor test --provider.cluster devnet",
+    "deploy": "yarn build && arcium build && arcium deploy --cluster-offset 456 --recovery-set-size 4 --keypair-path ~/.config/solana/id.json --rpc-url $HELIUS_RPC_URL",
+    "init-comp-defs": "ts-node app/scripts/initCompDefs.ts",
+    "dev": "next dev app/"
+  },
+  "dependencies": {
+    "@arcium-hq/client": "^0.2.0",
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/wallet-adapter-base": "^0.9.23",
+    "@solana/wallet-adapter-phantom": "^0.9.24",
+    "@solana/wallet-adapter-react": "^0.15.35",
+    "@solana/wallet-adapter-react-ui": "^0.9.35",
+    "@solana/web3.js": "^1.98.4",
+    "next": "14.2.3",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.5",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
+  }
+}

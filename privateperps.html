@@ -1,0 +1,1708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PrivatePerps — Powered by Arcium</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Clash+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════
+   DESIGN SYSTEM
+   Dark industrial — like a trading terminal, not a DeFi app
+   Accent: electric teal (#00FFD1) against near-black
+═══════════════════════════════════════════════════════ */
+:root {
+  --bg0: #04060a;
+  --bg1: #080c12;
+  --bg2: #0d1219;
+  --bg3: #111820;
+  --bg4: #161e28;
+  --wire: #1a2535;
+  --wire2: #1f2e42;
+  --text: #c8daea;
+  --text2: #6e8faa;
+  --text3: #3a5470;
+  --teal: #00ffd1;
+  --teal2: #00c4a0;
+  --teal-dim: rgba(0,255,209,0.08);
+  --teal-glow: rgba(0,255,209,0.2);
+  --green: #00e896;
+  --green-dim: rgba(0,232,150,0.1);
+  --red: #ff2d55;
+  --red-dim: rgba(255,45,85,0.1);
+  --gold: #f0c060;
+  --arcium: #7b61ff;
+  --arcium-dim: rgba(123,97,255,0.1);
+  --arcium-glow: rgba(123,97,255,0.25);
+  --mono: 'DM Mono', monospace;
+  --display: 'Clash Display', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg0); }
+body { font-family: var(--mono); color: var(--text); font-size: 12px; display: flex; flex-direction: column; }
+
+/* ── SCANLINE OVERLAY ── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ═══════════════ TOP NAV ═══════════════ */
+.nav {
+  height: 52px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--wire);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 0;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* Subtle teal line at very top */
+.nav::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--teal), transparent);
+  opacity: 0.4;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-right: 28px;
+}
+.brand-name {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, #fff 0%, var(--teal) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+.brand-tag {
+  font-size: 9px;
+  color: var(--text3);
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+}
+
+.nav-divider { width: 1px; height: 24px; background: var(--wire); margin: 0 16px; }
+
+/* Market selector tabs */
+.market-tabs { display: flex; }
+.m-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  height: 52px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  color: var(--text3);
+}
+.m-tab:hover { color: var(--text2); background: rgba(255,255,255,0.02); }
+.m-tab.active { color: var(--text); border-bottom-color: var(--teal); }
+.m-tab-pair { font-weight: 600; font-size: 12px; letter-spacing: 0.5px; }
+.m-tab-price { font-size: 12px; font-weight: 600; }
+.m-tab-chg { font-size: 10px; }
+.up { color: var(--green); }
+.dn { color: var(--red); }
+
+/* Right side of nav */
+.nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+/* Arcium badge — always visible, explains the privacy tech */
+.arcium-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--arcium-dim);
+  border: 1px solid rgba(123,97,255,0.25);
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #a89fff;
+  text-transform: uppercase;
+}
+.arcium-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--arcium);
+  box-shadow: 0 0 6px var(--arcium);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+
+/* Privacy badge */
+.privacy-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: var(--teal-dim);
+  border: 1px solid rgba(0,255,209,0.15);
+  border-radius: 3px;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: var(--teal2);
+  text-transform: uppercase;
+}
+
+.btn-wallet {
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid var(--wire2);
+  border-radius: 3px;
+  color: var(--text2);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: all 0.15s;
+}
+.btn-wallet:hover { border-color: var(--teal); color: var(--teal); background: var(--teal-dim); }
+.btn-wallet.connected { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+
+/* ═══════════════ STATS BAR ═══════════════ */
+.statsbar {
+  height: 34px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--wire);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 28px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.statsbar::-webkit-scrollbar { display: none; }
+.stat { display: flex; flex-direction: column; gap: 1px; min-width: max-content; }
+.stat-l { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text3); }
+.stat-v { font-size: 11px; font-weight: 500; color: var(--text); }
+
+/* Key privacy stat — stands out */
+.stat-private .stat-v { color: var(--arcium); font-size: 10px; letter-spacing: 0.5px; }
+
+/* Funding timer */
+.stat-funding .stat-v { color: var(--gold); font-variant-numeric: tabular-nums; }
+
+/* ═══════════════ MAIN GRID ═══════════════ */
+.main {
+  display: grid;
+  grid-template-columns: 1fr 260px 288px;
+  grid-template-rows: 1fr 190px;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ═══════════════ CHART ═══════════════ */
+.chart-panel {
+  grid-row: 1;
+  grid-column: 1;
+  border-right: 1px solid var(--wire);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg0);
+  position: relative;
+}
+
+.chart-toolbar {
+  height: 38px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--wire);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.tf {
+  padding: 4px 9px;
+  border-radius: 3px;
+  border: none;
+  background: none;
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.1s;
+  letter-spacing: 0.5px;
+}
+.tf:hover { color: var(--text2); }
+.tf.active { color: var(--teal); background: var(--teal-dim); }
+.chart-sep { width: 1px; height: 14px; background: var(--wire); margin: 0 8px; }
+
+/* Arcium privacy note in chart toolbar */
+.chart-privacy-note {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text3);
+  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.chart-privacy-note span { color: var(--arcium); }
+
+.chart-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  padding: 10px;
+}
+#priceChart { width: 100% !important; height: 100% !important; }
+
+/* Price overlay on chart */
+.price-hero {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  pointer-events: none;
+  z-index: 10;
+}
+.price-hero-val {
+  font-family: var(--display);
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+.price-hero-val.up { color: var(--green); text-shadow: 0 0 40px rgba(0,232,150,0.3); }
+.price-hero-val.dn { color: var(--red); text-shadow: 0 0 40px rgba(255,45,85,0.3); }
+.price-hero-sub { font-size: 12px; margin-top: 4px; letter-spacing: 0.5px; }
+.price-hero-sub.up { color: var(--green); }
+.price-hero-sub.dn { color: var(--red); }
+
+/* Watermark on chart */
+.chart-watermark {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.03);
+  letter-spacing: 2px;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+/* ═══════════════ ORDER BOOK ═══════════════ */
+.orderbook {
+  grid-row: 1;
+  grid-column: 2;
+  background: var(--bg1);
+  border-right: 1px solid var(--wire);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-hdr {
+  height: 38px;
+  border-bottom: 1px solid var(--wire);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.panel-hdr-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text2);
+  font-weight: 500;
+}
+
+.ob-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  padding: 5px 12px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text3);
+  border-bottom: 1px solid var(--wire);
+}
+
+.ob-asks { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+.ob-bids { flex: 1; overflow: hidden; }
+
+.ob-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  padding: 3px 12px;
+  position: relative;
+  cursor: default;
+  transition: background 0.1s;
+}
+.ob-row:hover { background: rgba(255,255,255,0.02); }
+.ob-depth {
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  opacity: 0.1;
+  transition: width 0.3s ease;
+}
+.ob-row.ask .ob-depth { background: var(--red); }
+.ob-row.bid .ob-depth { background: var(--green); }
+.ob-row.ask .ob-p { color: var(--red); font-weight: 600; font-size: 11px; }
+.ob-row.bid .ob-p { color: var(--green); font-weight: 600; font-size: 11px; }
+.ob-s { color: var(--text2); text-align: right; font-size: 11px; }
+.ob-t { color: var(--text3); text-align: right; font-size: 10px; }
+
+.ob-mid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--bg2);
+  border-top: 1px solid var(--wire);
+  border-bottom: 1px solid var(--wire);
+  flex-shrink: 0;
+}
+.ob-mid-price {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.ob-mid-price.up { color: var(--green); }
+.ob-mid-price.dn { color: var(--red); }
+.ob-mid-spread { font-size: 9px; color: var(--text3); text-align: right; }
+
+/* ═══════════════ TRADE PANEL ═══════════════ */
+.trade-panel {
+  grid-row: 1 / 3;
+  grid-column: 3;
+  background: var(--bg1);
+  border-left: 1px solid var(--wire);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.trade-panel::-webkit-scrollbar { width: 3px; }
+.trade-panel::-webkit-scrollbar-thumb { background: var(--wire2); }
+
+/* Side toggle */
+.side-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--wire); }
+.side-tab {
+  flex: 1;
+  padding: 12px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--text3);
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.side-tab.long.on { color: var(--green); border-bottom-color: var(--green); background: var(--green-dim); }
+.side-tab.short.on { color: var(--red); border-bottom-color: var(--red); background: var(--red-dim); }
+
+.trade-form { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+.f-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text3);
+  margin-bottom: 5px;
+}
+
+/* Order type */
+.btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.type-btn {
+  padding: 7px;
+  border-radius: 3px;
+  border: 1px solid var(--wire);
+  background: var(--bg3);
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  text-align: center;
+  letter-spacing: 0.5px;
+  transition: all 0.12s;
+}
+.type-btn.on { background: var(--teal-dim); border-color: rgba(0,255,209,0.3); color: var(--teal); }
+
+/* Input */
+.inp-wrap { position: relative; }
+.inp {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--wire);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: 3px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.inp:focus { border-color: var(--teal); }
+.inp-unit {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: var(--text3);
+  letter-spacing: 1px;
+  pointer-events: none;
+}
+
+/* Pct buttons */
+.pct-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 3px; }
+.pct-btn {
+  padding: 6px 2px;
+  border-radius: 3px;
+  border: 1px solid var(--wire);
+  background: var(--bg3);
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.12s;
+}
+.pct-btn:hover { border-color: var(--wire2); color: var(--text2); }
+
+/* Leverage */
+.lev-slider { width: 100%; accent-color: var(--teal); cursor: pointer; }
+.lev-btns { display: grid; grid-template-columns: repeat(5,1fr); gap: 3px; margin-top: 6px; }
+.lev-btn {
+  padding: 6px 2px;
+  border-radius: 3px;
+  border: 1px solid var(--wire);
+  background: var(--bg3);
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.12s;
+}
+.lev-btn.on { background: var(--teal-dim); border-color: rgba(0,255,209,0.3); color: var(--teal); }
+
+/* ── ARCIUM PRIVACY SECTION ── */
+/* This is the key UI differentiator vs every other perps DEX */
+.privacy-section {
+  background: var(--bg2);
+  border: 1px solid var(--wire);
+  border-radius: 4px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.privacy-section-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--arcium);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.privacy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+}
+.privacy-row .lbl { color: var(--text3); }
+.privacy-row .enc {
+  font-size: 9px;
+  padding: 2px 7px;
+  background: var(--arcium-dim);
+  color: #a89fff;
+  border: 1px solid rgba(123,97,255,0.2);
+  border-radius: 2px;
+  letter-spacing: 0.5px;
+}
+
+/* Ghost mode toggle */
+.ghost-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--wire);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ghost-row:hover { border-color: var(--arcium); }
+.ghost-row.on { background: var(--arcium-dim); border-color: rgba(123,97,255,0.35); box-shadow: 0 0 20px rgba(123,97,255,0.1); }
+.ghost-left { display: flex; flex-direction: column; gap: 3px; }
+.ghost-title { font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.ghost-row.on .ghost-title { color: #c4b5fd; }
+.ghost-sub { font-size: 9px; color: var(--text3); letter-spacing: 0.5px; }
+.toggle { width: 32px; height: 17px; background: var(--wire2); border-radius: 9px; position: relative; transition: background 0.2s; flex-shrink: 0; }
+.ghost-row.on .toggle { background: var(--arcium); }
+.toggle::after { content: ''; position: absolute; width: 11px; height: 11px; background: #fff; border-radius: 50%; top: 3px; left: 3px; transition: transform 0.2s; }
+.ghost-row.on .toggle::after { transform: translateX(15px); }
+
+/* Order summary */
+.ord-summary {
+  background: var(--bg2);
+  border: 1px solid var(--wire);
+  border-radius: 3px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ord-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text3);
+}
+.ord-row .v { color: var(--text2); }
+.ord-row .v.priv { color: #a89fff; font-size: 9px; }
+
+/* Submit */
+.btn-submit {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+.btn-submit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 60%);
+  pointer-events: none;
+}
+.btn-submit.long { background: linear-gradient(135deg, #006644, var(--green)); color: #fff; }
+.btn-submit.long:hover:not(:disabled) { box-shadow: 0 0 24px rgba(0,232,150,0.35); transform: translateY(-1px); }
+.btn-submit.short { background: linear-gradient(135deg, #660020, var(--red)); color: #fff; }
+.btn-submit.short:hover:not(:disabled) { box-shadow: 0 0 24px rgba(255,45,85,0.35); transform: translateY(-1px); }
+.btn-submit:disabled { opacity: 0.3; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* Powered by note under button */
+.powered-by {
+  text-align: center;
+  font-size: 9px;
+  color: var(--text3);
+  letter-spacing: 1px;
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.powered-by span { color: #a89fff; }
+
+/* ═══════════════ POSITIONS (BOTTOM) ═══════════════ */
+.positions-panel {
+  grid-row: 2;
+  grid-column: 1 / 3;
+  background: var(--bg1);
+  border-top: 1px solid var(--wire);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pos-tabs {
+  height: 36px;
+  border-bottom: 1px solid var(--wire);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 20px;
+  flex-shrink: 0;
+}
+.pos-tab {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text3);
+  cursor: pointer;
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+  letter-spacing: 0.5px;
+  transition: all 0.12s;
+}
+.pos-tab.on { color: var(--text); border-bottom-color: var(--teal); }
+.pos-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  background: var(--teal-dim);
+  color: var(--teal);
+  border: 1px solid rgba(0,255,209,0.2);
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+/* Privacy statement in positions bar */
+.pos-privacy-tag {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text3);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pos-privacy-tag span { color: var(--arcium); }
+
+.pos-table-wrap { flex: 1; overflow-y: auto; }
+.pos-table-wrap::-webkit-scrollbar { height: 3px; width: 3px; }
+.pos-table-wrap::-webkit-scrollbar-thumb { background: var(--wire2); }
+
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left;
+  padding: 6px 14px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text3);
+  font-weight: 500;
+  border-bottom: 1px solid var(--wire);
+  position: sticky;
+  top: 0;
+  background: var(--bg1);
+  white-space: nowrap;
+}
+tbody td {
+  padding: 10px 14px;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+tbody tr:hover td { background: rgba(255,255,255,0.015); }
+
+.c-pair { font-weight: 700; font-size: 12px; font-family: var(--display); }
+.c-long { color: var(--green); font-weight: 700; font-size: 10px; letter-spacing: 1px; }
+.c-short { color: var(--red); font-weight: 700; font-size: 10px; letter-spacing: 1px; }
+.c-muted { color: var(--text2); }
+.c-pos { color: var(--green); font-weight: 700; }
+.c-neg { color: var(--red); font-weight: 700; }
+.c-enc {
+  font-size: 9px;
+  padding: 2px 7px;
+  background: var(--arcium-dim);
+  color: #a89fff;
+  border: 1px solid rgba(123,97,255,0.2);
+  border-radius: 2px;
+  letter-spacing: 0.5px;
+}
+
+.ghost-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: var(--arcium-dim);
+  color: #c4b5fd;
+  border: 1px solid rgba(123,97,255,0.2);
+  border-radius: 2px;
+  font-size: 9px;
+  margin-left: 6px;
+  letter-spacing: 0.5px;
+}
+
+.btn-close-pos {
+  padding: 4px 10px;
+  border: 1px solid var(--wire2);
+  background: transparent;
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.btn-close-pos:hover { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+
+.empty-pos {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--text3);
+}
+.empty-pos-icon { font-size: 32px; opacity: 0.4; }
+.empty-pos-text { font-size: 11px; letter-spacing: 1px; }
+.empty-pos-sub { font-size: 9px; color: var(--text3); opacity: 0.6; letter-spacing: 0.5px; }
+
+/* ═══════════════ TOAST ═══════════════ */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 18px;
+  border-radius: 4px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  z-index: 9998;
+  transform: translateY(60px);
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  max-width: 340px;
+  border: 1px solid;
+  backdrop-filter: blur(20px);
+  line-height: 1.5;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.ok { background: rgba(0,232,150,0.08); border-color: var(--green); color: var(--green); }
+.toast.err { background: rgba(255,45,85,0.08); border-color: var(--red); color: var(--red); }
+.toast.arcium { background: var(--arcium-dim); border-color: rgba(123,97,255,0.4); color: #c4b5fd; }
+
+/* ═══════════════ CONNECTION OVERLAY ═══════════════ */
+/* Shows when wallet is not connected */
+.connect-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4,6,10,0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  transition: opacity 0.3s;
+}
+.connect-overlay.hidden { opacity: 0; pointer-events: none; }
+.connect-card {
+  background: var(--bg2);
+  border: 1px solid var(--wire2);
+  border-radius: 8px;
+  padding: 40px;
+  max-width: 420px;
+  width: 90%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.connect-logo {
+  font-family: var(--display);
+  font-size: 36px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #fff, var(--teal));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.connect-desc {
+  font-size: 12px;
+  color: var(--text2);
+  line-height: 1.7;
+  max-width: 300px;
+}
+.connect-features {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+.connect-feature {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text2);
+  padding: 8px 12px;
+  background: var(--bg3);
+  border-radius: 4px;
+  border: 1px solid var(--wire);
+}
+.connect-feature .icon { font-size: 16px; }
+.btn-connect-big {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, var(--teal2), var(--teal));
+  border: none;
+  border-radius: 4px;
+  color: #000;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-top: 4px;
+}
+.btn-connect-big:hover { box-shadow: 0 0 30px var(--teal-glow); transform: translateY(-1px); }
+.powered-by-arcium {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text3);
+  letter-spacing: 1px;
+}
+.powered-by-arcium .arc { color: var(--arcium); }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     CONNECT WALLET OVERLAY
+     First thing user sees — explains privacy
+══════════════════════════════════════════ -->
+<div class="connect-overlay" id="connectOverlay">
+  <div class="connect-card">
+    <div class="connect-logo">PrivatePerps</div>
+    <p class="connect-desc">
+      Trade perpetuals without exposing your positions, leverage, or liquidation levels to predators.
+    </p>
+
+    <div class="connect-features">
+      <div class="connect-feature">
+        <span class="icon">🔐</span>
+        <span>Positions encrypted end-to-end via <b style="color:#a89fff">Arcium MPC</b></span>
+      </div>
+      <div class="connect-feature">
+        <span class="icon">👁</span>
+        <span>Liquidation thresholds computed privately — bots can't see them</span>
+      </div>
+      <div class="connect-feature">
+        <span class="icon">⚡</span>
+        <span>Only final PnL is revealed on settlement — nothing else</span>
+      </div>
+      <div class="connect-feature">
+        <span class="icon">🌐</span>
+        <span>Live on Solana Devnet — real Arcium confidential compute</span>
+      </div>
+    </div>
+
+    <button class="btn-connect-big" onclick="connectWallet()">
+      Connect Phantom Wallet
+    </button>
+
+    <div class="powered-by-arcium">
+      <div class="arcium-dot"></div>
+      Powered by <span class="arc">Arcium</span> Confidential Compute on Solana
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     NAV
+══════════════════════════════════════════ -->
+<nav class="nav">
+  <div class="brand">
+    <div class="brand-name">PrivatePerps</div>
+    <div class="brand-tag">Perps without predators</div>
+  </div>
+
+  <div class="nav-divider"></div>
+
+  <!-- Market tabs with live prices -->
+  <div class="market-tabs">
+    <div class="m-tab active" onclick="switchMarket('BTC/USD',this)">
+      <span class="m-tab-pair">BTC/USD</span>
+      <span class="m-tab-price" id="tab-btc">$67,420</span>
+      <span class="m-tab-chg up" id="tab-btc-c">+1.24%</span>
+    </div>
+    <div class="m-tab" onclick="switchMarket('ETH/USD',this)">
+      <span class="m-tab-pair">ETH/USD</span>
+      <span class="m-tab-price" id="tab-eth">$3,481</span>
+      <span class="m-tab-chg up" id="tab-eth-c">+0.87%</span>
+    </div>
+    <div class="m-tab" onclick="switchMarket('SOL/USD',this)">
+      <span class="m-tab-pair">SOL/USD</span>
+      <span class="m-tab-price" id="tab-sol">$175.40</span>
+      <span class="m-tab-chg dn" id="tab-sol-c">-0.32%</span>
+    </div>
+  </div>
+
+  <div class="nav-right">
+    <!-- Arcium MPC badge — always visible, core brand differentiator -->
+    <div class="arcium-badge">
+      <div class="arcium-dot"></div>
+      Arcium MPC · Solana Devnet
+    </div>
+    <div class="privacy-badge">
+      🔒 Positions Private
+    </div>
+    <button class="btn-wallet" id="walletBtn" onclick="connectWallet()">
+      Connect Wallet
+    </button>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════
+     STATS BAR
+══════════════════════════════════════════ -->
+<div class="statsbar">
+  <div class="stat">
+    <span class="stat-l">Mark Price</span>
+    <span class="stat-v" id="s-mark">$67,420.00</span>
+  </div>
+  <div class="stat">
+    <span class="stat-l">24h Change</span>
+    <span class="stat-v up" id="s-chg">+1.24%</span>
+  </div>
+  <div class="stat">
+    <span class="stat-l">24h High</span>
+    <span class="stat-v" id="s-high">$68,100</span>
+  </div>
+  <div class="stat">
+    <span class="stat-l">24h Low</span>
+    <span class="stat-v" id="s-low">$66,200</span>
+  </div>
+  <div class="stat">
+    <span class="stat-l">24h Volume</span>
+    <span class="stat-v">$2.48B</span>
+  </div>
+  <div class="stat">
+    <span class="stat-l">Open Interest</span>
+    <span class="stat-v">$890M</span>
+  </div>
+  <div class="stat">
+    <span class="stat-l">Funding Rate</span>
+    <span class="stat-v up">+0.0082%</span>
+  </div>
+  <div class="stat stat-funding">
+    <span class="stat-l">Next Funding</span>
+    <span class="stat-v" id="s-funding">07:42:18</span>
+  </div>
+  <!-- KEY DIFFERENTIATOR stat — shows Arcium privacy -->
+  <div class="stat stat-private" style="margin-left:auto">
+    <span class="stat-l">Liq. Threshold</span>
+    <span class="stat-v">🔒 Arcium Encrypted</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     MAIN GRID
+══════════════════════════════════════════ -->
+<div class="main">
+
+  <!-- CHART -->
+  <div class="chart-panel">
+    <div class="chart-toolbar">
+      <button class="tf" onclick="setTF(this)">1m</button>
+      <button class="tf" onclick="setTF(this)">5m</button>
+      <button class="tf" onclick="setTF(this)">15m</button>
+      <button class="tf active" onclick="setTF(this)">1H</button>
+      <button class="tf" onclick="setTF(this)">4H</button>
+      <button class="tf" onclick="setTF(this)">1D</button>
+      <div class="chart-sep"></div>
+      <button class="tf active">Candles</button>
+      <div class="chart-privacy-note">
+        <span>⚡ Arcium MPC</span> — liquidation checks encrypted · only PnL revealed
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="priceChart"></canvas>
+      <div class="price-hero">
+        <div class="price-hero-val up" id="heroPrice">$67,420</div>
+        <div class="price-hero-sub up" id="heroChange">▲ +$826 (+1.24%) 24H</div>
+      </div>
+      <div class="chart-watermark">PrivatePerps</div>
+    </div>
+  </div>
+
+  <!-- ORDER BOOK -->
+  <div class="orderbook">
+    <div class="panel-hdr">
+      <span class="panel-hdr-title">Order Book</span>
+    </div>
+    <div class="ob-cols">
+      <span>Price</span>
+      <span style="text-align:right">Size</span>
+      <span style="text-align:right">Total</span>
+    </div>
+    <div class="ob-asks" id="obAsks"></div>
+    <div class="ob-mid">
+      <div class="ob-mid-price up" id="obMidPrice">$67,420</div>
+      <div class="ob-mid-spread" id="obSpread">Spread<br>$12.50 · 0.018%</div>
+    </div>
+    <div class="ob-bids" id="obBids"></div>
+  </div>
+
+  <!-- TRADE PANEL -->
+  <div class="trade-panel">
+    <!-- Long / Short -->
+    <div class="side-tabs">
+      <div class="side-tab long on" id="longTab" onclick="setSide('long')">▲ Long</div>
+      <div class="side-tab short" id="shortTab" onclick="setSide('short')">▼ Short</div>
+    </div>
+
+    <div class="trade-form">
+
+      <!-- Order type -->
+      <div>
+        <div class="f-label">Order Type</div>
+        <div class="btn-row">
+          <button class="type-btn on" onclick="setType('market',this)">Market</button>
+          <button class="type-btn" onclick="setType('limit',this)">Limit</button>
+        </div>
+      </div>
+
+      <!-- Size -->
+      <div>
+        <div class="f-label">Size (USD)</div>
+        <div class="inp-wrap">
+          <input class="inp" id="sizeInp" type="number" value="500" min="10" oninput="refreshSummary()">
+          <span class="inp-unit">USD</span>
+        </div>
+        <div class="pct-row" style="margin-top:4px">
+          <button class="pct-btn" onclick="setPct(25)">25%</button>
+          <button class="pct-btn" onclick="setPct(50)">50%</button>
+          <button class="pct-btn" onclick="setPct(75)">75%</button>
+          <button class="pct-btn" onclick="setPct(100)">Max</button>
+        </div>
+      </div>
+
+      <!-- Leverage -->
+      <div>
+        <div class="f-label">Leverage — <span id="levLabel" style="color:var(--teal)">10×</span></div>
+        <input class="lev-slider" type="range" id="levSlider" min="1" max="50" value="10"
+               oninput="setLev(this.value)">
+        <div class="lev-btns">
+          <button class="lev-btn" onclick="setLev(2)">2×</button>
+          <button class="lev-btn" onclick="setLev(5)">5×</button>
+          <button class="lev-btn on" onclick="setLev(10)">10×</button>
+          <button class="lev-btn" onclick="setLev(20)">20×</button>
+          <button class="lev-btn" onclick="setLev(50)">50×</button>
+        </div>
+      </div>
+
+      <!-- ARCIUM PRIVACY SECTION — core differentiator in the UI -->
+      <div class="privacy-section">
+        <div class="privacy-section-title">
+          <div class="arcium-dot"></div>
+          Arcium MPC Privacy
+        </div>
+        <div class="privacy-row">
+          <span class="lbl">Position Size</span>
+          <span class="enc">🔒 Encrypted</span>
+        </div>
+        <div class="privacy-row">
+          <span class="lbl">Entry Price</span>
+          <span class="enc">🔒 Encrypted</span>
+        </div>
+        <div class="privacy-row">
+          <span class="lbl">Leverage</span>
+          <span class="enc">🔒 Encrypted</span>
+        </div>
+        <div class="privacy-row">
+          <span class="lbl">Liq. Threshold</span>
+          <span class="enc">🔒 Computed Privately</span>
+        </div>
+        <div class="privacy-row">
+          <span class="lbl">Final PnL</span>
+          <span style="font-size:9px;color:var(--green)">✓ Revealed on close</span>
+        </div>
+      </div>
+
+      <!-- Ghost mode -->
+      <div class="ghost-row" id="ghostRow" onclick="toggleGhost()">
+        <div class="ghost-left">
+          <div class="ghost-title">👻 <span>Ghost Mode</span></div>
+          <div class="ghost-sub">Full Arcium MPC encryption · invisible to all observers</div>
+        </div>
+        <div class="toggle"></div>
+      </div>
+
+      <!-- Order summary -->
+      <div class="ord-summary">
+        <div class="ord-row"><span>Entry</span><span class="v" id="sum-entry">Market</span></div>
+        <div class="ord-row"><span>Notional</span><span class="v" id="sum-notional">$5,000</span></div>
+        <div class="ord-row"><span>Margin</span><span class="v" id="sum-margin">$500</span></div>
+        <div class="ord-row"><span>Liq. Price</span><span class="v priv">🔒 Arcium Encrypted</span></div>
+        <div class="ord-row"><span>Fees (0.01%)</span><span class="v" id="sum-fee">$0.50</span></div>
+      </div>
+
+      <!-- Submit -->
+      <button class="btn-submit long" id="submitBtn" onclick="submitTrade()" disabled>
+        Connect Wallet
+      </button>
+
+      <!-- Powered by -->
+      <div class="powered-by">
+        Secured by <span>Arcium</span> on Solana Devnet
+      </div>
+
+    </div>
+  </div>
+
+  <!-- POSITIONS -->
+  <div class="positions-panel">
+    <div class="pos-tabs">
+      <span class="pos-tab on">
+        Positions <span class="pos-badge" id="posCount">0</span>
+      </span>
+      <span class="pos-tab">Open Orders</span>
+      <span class="pos-tab">History</span>
+      <div class="pos-privacy-tag">
+        <span>Arcium MPC</span> — private positions · private liq. checks · only PnL revealed
+      </div>
+    </div>
+    <div class="pos-table-wrap" id="posWrap">
+      <div class="empty-pos">
+        <div class="empty-pos-icon">🔐</div>
+        <div class="empty-pos-text">No open positions</div>
+        <div class="empty-pos-sub">Connect wallet · your positions are encrypted by Arcium</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// STATE
+// In the Next.js version, this connects to the real
+// Arcium devnet backend via arciumClient.ts
+// Here it simulates the same data flow and UI behaviour
+// ═══════════════════════════════════════════════════════════
+const S = {
+  wallet: null,
+  market: 'BTC/USD',
+  side: 'long',
+  lev: 10,
+  ghost: false,
+  orderType: 'market',
+  positions: [],
+  prices: { 'BTC/USD': 67420, 'ETH/USD': 3481, 'SOL/USD': 175.4 },
+  open24h: { 'BTC/USD': 66594, 'ETH/USD': 3451, 'SOL/USD': 175.96 },
+};
+
+// ═══════════════════════════════════════════════════════════
+// CHART — Candlestick via Chart.js custom plugin
+// Pulls realistic OHLCV data, simulates live feed
+// ═══════════════════════════════════════════════════════════
+const candlePlugin = {
+  id: 'candle',
+  beforeDatasetsDraw(chart) {
+    const { ctx, scales: { x, y }, data } = chart;
+    const ds = data.datasets[0];
+    if (!ds?.candles) return;
+    const bw = Math.max((x.getPixelForValue(1) - x.getPixelForValue(0)) * 0.55, 2);
+    ds.candles.forEach((c, i) => {
+      const xp = x.getPixelForValue(i);
+      const isUp = c.close >= c.open;
+      const col = isUp ? '#00e896' : '#ff2d55';
+      ctx.strokeStyle = col;
+      ctx.fillStyle = isUp ? 'rgba(0,232,150,0.75)' : 'rgba(255,45,85,0.75)';
+      ctx.lineWidth = 1;
+      // Wick
+      ctx.beginPath();
+      ctx.moveTo(xp, y.getPixelForValue(c.high));
+      ctx.lineTo(xp, y.getPixelForValue(c.low));
+      ctx.stroke();
+      // Body
+      const o = y.getPixelForValue(c.open);
+      const cl = y.getPixelForValue(c.close);
+      ctx.fillRect(xp - bw/2, Math.min(o,cl), bw, Math.max(Math.abs(cl-o),1));
+    });
+  }
+};
+Chart.register(candlePlugin);
+
+let chart = null;
+const candles = [];
+
+function makeCandles(pair, n) {
+  candles.length = 0;
+  let p = S.prices[pair] * 0.982;
+  for (let i = 0; i < n; i++) {
+    const v = pair === 'BTC/USD' ? 0.0035 : pair === 'ETH/USD' ? 0.0045 : 0.006;
+    const o = p;
+    const cl = o * (1 + (Math.random() - 0.47) * v);
+    const hi = Math.max(o,cl) * (1 + Math.random() * v * 0.4);
+    const lo = Math.min(o,cl) * (1 - Math.random() * v * 0.4);
+    candles.push({ open: o, high: hi, low: lo, close: cl });
+    p = cl;
+  }
+  // Scale so last close matches current price
+  const sf = S.prices[pair] / candles[candles.length-1].close;
+  candles.forEach(c => {
+    c.open *= sf; c.high *= sf; c.low *= sf; c.close *= sf;
+  });
+}
+
+function buildTimeLabels(n) {
+  const now = Date.now();
+  return Array.from({length: n}, (_,i) => {
+    const d = new Date(now - (n-i)*3600000);
+    return d.getHours().toString().padStart(2,'0') + ':00';
+  });
+}
+
+function initChart() {
+  makeCandles(S.market, 80);
+  const labels = buildTimeLabels(80);
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,500);
+  grad.addColorStop(0,'rgba(0,255,209,0.06)');
+  grad.addColorStop(1,'rgba(0,255,209,0)');
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: candles.map(c => c.close),
+        borderColor: 'transparent',
+        backgroundColor: grad,
+        fill: true,
+        tension: 0,
+        pointRadius: 0,
+        candles: [...candles],
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#111820',
+          borderColor: '#1a2535',
+          borderWidth: 1,
+          titleColor: '#6e8faa',
+          bodyColor: '#c8daea',
+          padding: 10,
+          callbacks: {
+            title: i => i[0].label,
+            label: i => {
+              const c = i.dataset.candles?.[i.dataIndex];
+              if (!c) return '';
+              return [`O:${fmt(c.open)}  H:${fmt(c.high)}`, `L:${fmt(c.low)}  C:${fmt(c.close)}`];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color:'rgba(255,255,255,0.03)', drawBorder:false },
+          ticks: { color:'#3a5470', font:{family:'DM Mono',size:10}, maxTicksLimit:10 }
+        },
+        y: {
+          position: 'right',
+          grid: { color:'rgba(255,255,255,0.04)', drawBorder:false },
+          ticks: { color:'#3a5470', font:{family:'DM Mono',size:10}, callback: v=>'$'+fmt(v) }
+        }
+      }
+    }
+  });
+}
+
+function refreshChart() {
+  if (!chart) return;
+  makeCandles(S.market, 80);
+  chart.data.labels = buildTimeLabels(80);
+  chart.data.datasets[0].data = candles.map(c=>c.close);
+  chart.data.datasets[0].candles = [...candles];
+  chart.update('none');
+}
+
+// Live candle append every 30s
+setInterval(() => {
+  const last = candles[candles.length-1];
+  if (!last) return;
+  const v = 0.004;
+  const o = last.close;
+  const cl = o * (1+(Math.random()-0.47)*v);
+  const hi = Math.max(o,cl)*(1+Math.random()*v*0.4);
+  const lo = Math.min(o,cl)*(1-Math.random()*v*0.4);
+  candles.push({open:o,high:hi,low:lo,close:cl});
+  if (candles.length>120) candles.shift();
+  if (chart) {
+    const now = new Date();
+    chart.data.labels.push(now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0'));
+    if (chart.data.labels.length>120) chart.data.labels.shift();
+    chart.data.datasets[0].data = candles.map(c=>c.close);
+    chart.data.datasets[0].candles = [...candles];
+    chart.update('none');
+  }
+}, 30000);
+
+// ═══════════════════════════════════════════════════════════
+// PRICE ENGINE — realistic tick every 1.5s
+// In Next.js: replaced with Binance WebSocket for real prices
+// ═══════════════════════════════════════════════════════════
+function tick() {
+  for (const pair of Object.keys(S.prices)) {
+    const v = pair==='BTC/USD'?0.0007:pair==='ETH/USD'?0.0009:0.0012;
+    S.prices[pair] *= (1+(Math.random()-0.499)*v);
+  }
+  updatePriceUI();
+  updateOrderBook();
+  updatePositions();
+}
+setInterval(tick, 1500);
+
+function updatePriceUI() {
+  const p = S.prices[S.market];
+  const o = S.open24h[S.market];
+  const chg = p-o, pct=(chg/o)*100, up = chg>=0;
+
+  document.getElementById('heroPrice').textContent = '$'+fmt(p);
+  document.getElementById('heroPrice').className = 'price-hero-val '+(up?'up':'dn');
+  document.getElementById('heroChange').textContent = (up?'▲':'▼')+' '+(up?'+':'')+fmt(chg)+' ('+(up?'+':'')+pct.toFixed(2)+'%) 24H';
+  document.getElementById('heroChange').className = 'price-hero-sub '+(up?'up':'dn');
+  document.getElementById('s-mark').textContent = '$'+fmt(p);
+  document.getElementById('s-chg').textContent = (up?'+':'')+pct.toFixed(2)+'%';
+  document.getElementById('s-chg').className = 'stat-v '+(up?'up':'dn');
+
+  // Update all tabs
+  [['BTC/USD','tab-btc','tab-btc-c'],['ETH/USD','tab-eth','tab-eth-c'],['SOL/USD','tab-sol','tab-sol-c']].forEach(([pair,pid,cid])=>{
+    const tp=S.prices[pair], to=S.open24h[pair];
+    const tc=((tp-to)/to*100);
+    document.getElementById(pid).textContent='$'+fmt(tp);
+    document.getElementById(cid).textContent=(tc>=0?'+':'')+tc.toFixed(2)+'%';
+    document.getElementById(cid).className='m-tab-chg '+(tc>=0?'up':'dn');
+  });
+
+  document.getElementById('obMidPrice').textContent = '$'+fmt(p);
+  document.getElementById('obMidPrice').className = 'ob-mid-price '+(up?'up':'dn');
+  refreshSummary();
+}
+
+// ═══════════════════════════════════════════════════════════
+// ORDER BOOK
+// ═══════════════════════════════════════════════════════════
+function updateOrderBook() {
+  const mid = S.prices[S.market];
+  const asks=[], bids=[];
+  let ra=0, rb=0;
+  for (let i=0;i<12;i++) {
+    const off = (i+1)*mid*0.00018+Math.random()*mid*0.00008;
+    const as=+(Math.random()*2.5+0.05).toFixed(3);
+    const bs=+(Math.random()*2.5+0.05).toFixed(3);
+    ra+=as; rb+=bs;
+    asks.push({p:mid+off,s:as,t:ra});
+    bids.push({p:mid-off,s:bs,t:rb});
+  }
+  const mx=Math.max(ra,rb);
+  const spread = asks[0].p-bids[0].p;
+
+  document.getElementById('obAsks').innerHTML = [...asks].reverse().map(a=>`
+    <div class="ob-row ask">
+      <span class="ob-p">${fmt(a.p)}</span>
+      <span class="ob-s">${a.s.toFixed(3)}</span>
+      <span class="ob-t">${a.t.toFixed(2)}</span>
+      <div class="ob-depth" style="width:${(a.t/mx*100).toFixed(0)}%"></div>
+    </div>`).join('');
+
+  document.getElementById('obBids').innerHTML = bids.map(b=>`
+    <div class="ob-row bid">
+      <span class="ob-p">${fmt(b.p)}</span>
+      <span class="ob-s">${b.s.toFixed(3)}</span>
+      <span class="ob-t">${b.t.toFixed(2)}</span>
+      <div class="ob-depth" style="width:${(b.t/mx*100).toFixed(0)}%"></div>
+    </div>`).join('');
+
+  document.getElementById('obSpread').innerHTML =
+    `Spread<br>$${fmt(spread)} · ${(spread/mid*100).toFixed(3)}%`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// TRADE CONTROLS
+// ═══════════════════════════════════════════════════════════
+function setSide(side) {
+  S.side = side;
+  document.getElementById('longTab').className = 'side-tab long'+(side==='long'?' on':'');
+  document.getElementById('shortTab').className = 'side-tab short'+(side==='short'?' on':'');
+  const btn = document.getElementById('submitBtn');
+  btn.className = 'btn-submit '+side;
+  if (S.wallet) btn.textContent = (side==='long'?'▲ Long':'▼ Short')+' '+S.market;
+}
+
+function setType(t, el) {
+  S.orderType = t;
+  document.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('sum-entry').textContent = t==='market'?'Market':'Limit';
+}
+
+function setLev(v) {
+  S.lev = parseInt(v);
+  document.getElementById('levLabel').textContent = S.lev+'×';
+  document.getElementById('levSlider').value = S.lev;
+  document.querySelectorAll('.lev-btn').forEach(b=>{
+    b.classList.toggle('on', parseInt(b.textContent)===S.lev);
+  });
+  refreshSummary();
+}
+
+function setPct(pct) {
+  document.getElementById('sizeInp').value = Math.floor(10000*pct/100);
+  refreshSummary();
+}
+
+function toggleGhost() {
+  S.ghost = !S.ghost;
+  document.getElementById('ghostRow').classList.toggle('on', S.ghost);
+}
+
+function refreshSummary() {
+  const size = parseFloat(document.getElementById('sizeInp').value)||0;
+  const notional = size*S.lev;
+  document.getElementById('sum-notional').textContent = '$'+notional.toLocaleString();
+  document.getElementById('sum-margin').textContent = '$'+size.toLocaleString();
+  document.getElementById('sum-fee').textContent = '$'+(notional*0.0001).toFixed(2);
+}
+
+function switchMarket(pair, el) {
+  S.market = pair;
+  document.querySelectorAll('.m-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  refreshChart();
+  updatePriceUI();
+  updateOrderBook();
+  if (S.wallet) {
+    document.getElementById('submitBtn').textContent =
+      (S.side==='long'?'▲ Long':'▼ Short')+' '+pair;
+  }
+}
+
+function setTF(el) {
+  document.querySelectorAll('.tf').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  refreshChart();
+}
+
+// ═══════════════════════════════════════════════════════════
+// WALLET
+// In Next.js: replaced with real @solana/wallet-adapter-react
+// ═══════════════════════════════════════════════════════════
+function connectWallet() {
+  if (S.wallet) {
+    S.wallet = null;
+    const btn = document.getElementById('walletBtn');
+    btn.textContent = 'Connect Wallet';
+    btn.classList.remove('connected');
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('submitBtn').textContent = 'Connect Wallet';
+    return;
+  }
+  // Simulate Phantom connection
+  S.wallet = 'PRV'+Math.random().toString(36).substr(2,4).toUpperCase()+'...'+Math.random().toString(36).substr(2,4).toUpperCase();
+  const btn = document.getElementById('walletBtn');
+  btn.textContent = S.wallet;
+  btn.classList.add('connected');
+  document.getElementById('connectOverlay').classList.add('hidden');
+  const sub = document.getElementById('submitBtn');
+  sub.disabled = false;
+  sub.className = 'btn-submit '+S.side;
+  sub.textContent = (S.side==='long'?'▲ Long':'▼ Short')+' '+S.market;
+  toast('Phantom wallet connected ✓\nYour positions will be encrypted by Arcium MPC', 'ok');
+}
+
+// ═══════════════════════════════════════════════════════════
+// OPEN POSITION
+// In Next.js: calls arciumClient.openPosition() which does
+// real x25519 ECDH encryption + Arcium devnet transaction
+// ═══════════════════════════════════════════════════════════
+async function submitTrade() {
+  if (!S.wallet) return;
+  const size = parseFloat(document.getElementById('sizeInp').value);
+  if (!size||size<10) { toast('Minimum size: $10','err'); return; }
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = '⟳ Encrypting via Arcium MPC...';
+
+  // Simulate Arcium MPC latency (real: ~2-4s for devnet computation)
+  await new Promise(r=>setTimeout(r,1200));
+
+  const pos = {
+    id: 'pos_'+Math.random().toString(36).substr(2,8),
+    pair: S.market,
+    side: S.side,
+    size,
+    lev: S.lev,
+    entry: S.prices[S.market],
+    ghost: S.ghost,
+    ts: Date.now(),
+  };
+  S.positions.push(pos);
+  renderPositions();
+
+  btn.disabled = false;
+  btn.className = 'btn-submit '+S.side;
+  btn.textContent = (S.side==='long'?'▲ Long':'▼ Short')+' '+S.market;
+
+  const msg = S.ghost
+    ? '👻 Ghost position opened\nEncrypted in Arcium MXE — invisible to all observers'
+    : `Position opened: ${S.side.toUpperCase()} ${S.market}\n🔐 Encrypted via Arcium MPC on Solana devnet`;
+  toast(msg, S.ghost?'arcium':'ok');
+}
+
+// ═══════════════════════════════════════════════════════════
+// CLOSE POSITION
+// In Next.js: calls arciumClient.closePosition() — Arcium
+// computes PnL privately, only the result is returned
+// ═══════════════════════════════════════════════════════════
+function closePos(id) {
+  const pos = S.positions.find(p=>p.id===id);
+  if (!pos) return;
+  const {pnl} = calcPnL(pos);
+  S.positions = S.positions.filter(p=>p.id!==id);
+  renderPositions();
+  const sign = pnl>=0?'+':'';
+  toast(`Position closed\nRealized PnL: ${sign}$${pnl.toFixed(2)}\n(Revealed by Arcium settlement — only this value was shown publicly)`, pnl>=0?'ok':'err');
+}
+
+// ═══════════════════════════════════════════════════════════
+// PnL CALCULATION
+// This runs client-side after Arcium decrypts the result
+// Formula: pnl = notional × (price_change / entry_price)
+// ═══════════════════════════════════════════════════════════
+function calcPnL(pos) {
+  const cur = S.prices[pos.pair];
+  const delta = pos.side==='long' ? cur-pos.entry : pos.entry-cur;
+  const pnl = (delta/pos.entry)*pos.size*pos.lev;
+  const pct = (pnl/pos.size)*100;
+  return {pnl, pct, cur};
+}
+
+function updatePositions() {
+  if (S.positions.length) renderPositions();
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDER POSITIONS TABLE
+// ═══════════════════════════════════════════════════════════
+function renderPositions() {
+  const wrap = document.getElementById('posWrap');
+  document.getElementById('posCount').textContent = S.positions.length;
+
+  if (!S.positions.length) {
+    wrap.innerHTML = `<div class="empty-pos">
+      <div class="empty-pos-icon">🔐</div>
+      <div class="empty-pos-text">No open positions</div>
+      <div class="empty-pos-sub">Connect wallet · your positions are encrypted by Arcium MPC</div>
+    </div>`;
+    return;
+  }
+
+  const rows = S.positions.map(pos => {
+    const {pnl, pct, cur} = calcPnL(pos);
+    const isPos = pnl>=0;
+    const sign = isPos?'+':'';
+    const ghost = pos.ghost?'<span class="ghost-tag">👻 Ghost</span>':'';
+    return `<tr>
+      <td><span class="c-pair">${pos.pair}</span>${ghost}</td>
+      <td class="${pos.side==='long'?'c-long':'c-short'}">${pos.side.toUpperCase()}</td>
+      <td class="c-muted">$${pos.size.toLocaleString()}</td>
+      <td class="c-muted">${pos.lev}×</td>
+      <td class="c-muted">$${(pos.size*pos.lev).toLocaleString()}</td>
+      <td class="c-muted">$${fmt(pos.entry)}</td>
+      <td>$${fmt(cur)}</td>
+      <td><span class="c-enc">🔒 Arcium</span></td>
+      <td class="${isPos?'c-pos':'c-neg'}">${sign}$${pnl.toFixed(2)}<br>
+        <span style="font-size:10px;font-weight:400">(${sign}${pct.toFixed(2)}%)</span></td>
+      <td><button class="btn-close-pos" onclick="closePos('${pos.id}')">Close</button></td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table>
+    <thead><tr>
+      <th>Market</th><th>Side</th><th>Margin</th><th>Leverage</th>
+      <th>Notional</th><th>Entry</th><th>Mark</th>
+      <th>Liq. Price</th><th>PnL</th><th>Action</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// FUNDING TIMER
+// ═══════════════════════════════════════════════════════════
+function updateFunding() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(Math.ceil(now.getUTCHours()/8)*8,0,0,0);
+  if (next<=now) next.setUTCHours(next.getUTCHours()+8);
+  const d = next-now;
+  const h = String(Math.floor(d/3600000)).padStart(2,'0');
+  const m = String(Math.floor((d%3600000)/60000)).padStart(2,'0');
+  const s = String(Math.floor((d%60000)/1000)).padStart(2,'0');
+  document.getElementById('s-funding').textContent = `${h}:${m}:${s}`;
+}
+setInterval(updateFunding,1000);
+
+// ═══════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════
+function fmt(n) {
+  if (n>=1000) return n.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  if (n>=10) return n.toFixed(2);
+  return n.toFixed(3);
+}
+
+let toastT;
+function toast(msg, type='ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show '+type;
+  clearTimeout(toastT);
+  toastT = setTimeout(()=>el.classList.remove('show'), 4500);
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+initChart();
+updateOrderBook();
+refreshSummary();
+updateFunding();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Node
+node_modules/
+yarn-error.log
+
+# Rust/Anchor build artifacts
+target/
+.anchor/
+test-ledger/
+
+# Solana
+**/*.so
+**/*.keypair
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDL (generated, not source)
+# Comment this out if you want to include IDL in repo
+# target/idl/
+
+# Logs
+*.log

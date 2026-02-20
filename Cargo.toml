@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "programs/private-perps"
+]
+
+[profile.release]
+overflow-checks = true
+
