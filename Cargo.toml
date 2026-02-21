@@ -1,8 +1,9 @@
 [workspace]
 members = [
-    "programs/private-perps"
+    "programs/private-perps",
+    "encrypted-ixs"
 ]
+resolver = "2"
 
 [profile.release]
 overflow-checks = true
-

@@ -1,0 +1,5 @@
+{
+  "name": "PrivatePerps Dev",
+  "postCreateCommand": "bash setup.sh",
+  "postStartCommand": "bash setup.sh"
+}
