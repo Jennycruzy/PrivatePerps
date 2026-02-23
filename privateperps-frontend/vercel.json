@@ -1,0 +1,12 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "devCommand": "next dev",
+  "installCommand": "npm install",
+  "env": {
+    "NEXT_PUBLIC_PROGRAM_ID": "By8ZwAFK26UhgwkVQXP3KE6miD4mgEz6eQ7QTS3X8FHv",
+    "NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET": "456",
+    "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.devnet.solana.com",
+    "NEXT_PUBLIC_CLUSTER": "devnet"
+  }
+}
