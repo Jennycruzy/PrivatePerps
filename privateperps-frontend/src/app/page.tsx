@@ -9,16 +9,21 @@ import {
   PROGRAM_ID,
   encryptPosition,
   submitOpenPosition,
-  waitForComputation,
-  submitComputePnL,
+  submitClosePosition,
   ArciumEncryptedPosition,
 } from "@/utils/arciumClient";
+import IDL from "@/idl/private_perps.json";
 
-// Price simulation (replace with Pyth oracle in production)
 const BASE_PRICES: Record<string, number> = {
   "BTC/USD": 67420,
   "ETH/USD": 3481,
   "SOL/USD": 175.4,
+};
+
+const open24h: Record<string, number> = {
+  "BTC/USD": 66594,
+  "ETH/USD": 3451,
+  "SOL/USD": 175.96,
 };
 
 interface Position {
@@ -52,10 +57,13 @@ export default function TradingPage() {
   const [status, setStatus] = useState("");
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
   const [fundingTimer, setFundingTimer] = useState("08:00:00");
+  const [mockBalance, setMockBalance] = useState<number | null>(null);
+  const [airdropping, setAirdropping] = useState(false);
 
   // Initialize Anchor program when wallet connects
   useEffect(() => {
     if (!wallet.publicKey || !wallet.signTransaction) return;
+
     const provider = new anchor.AnchorProvider(
       connection,
       wallet as any,
@@ -64,15 +72,30 @@ export default function TradingPage() {
     providerRef.current = provider;
     anchor.setProvider(provider);
 
-    // Load IDL — in production import from target/idl/private_perps.json
-    // For now we define the minimal IDL needed
-    const idl = getIDL();
     try {
-      programRef.current = new anchor.Program(idl as any, PROGRAM_ID, provider);
+      // Use real compiled IDL from target/idl/private_perps.json
+      programRef.current = new anchor.Program(IDL as any, PROGRAM_ID, provider);
+      console.log("✅ Program loaded:", PROGRAM_ID.toString());
     } catch (e) {
       console.error("Program load error:", e);
     }
+
+    // Give user 10,000 mock USDC on connect for testing
+    if (mockBalance === null) {
+      setMockBalance(10000);
+      showToast("🎉 Welcome! 10,000 mock USDC added to your account for testing.", "ok");
+    }
   }, [wallet.publicKey, connection]);
+
+  // Clear state on disconnect
+  useEffect(() => {
+    if (!wallet.publicKey) {
+      programRef.current = null;
+      providerRef.current = null;
+      setMockBalance(null);
+      setPositions([]);
+    }
+  }, [wallet.publicKey]);
 
   // Price ticker
   useEffect(() => {
@@ -110,49 +133,66 @@ export default function TradingPage() {
     setTimeout(() => setToast(null), 5000);
   };
 
+  // Airdrop devnet SOL for gas fees
+  const handleAirdrop = async () => {
+    if (!wallet.publicKey) return;
+    setAirdropping(true);
+    try {
+      const sig = await connection.requestAirdrop(
+        wallet.publicKey,
+        2 * anchor.web3.LAMPORTS_PER_SOL
+      );
+      await connection.confirmTransaction(sig);
+      showToast("✅ 2 devnet SOL airdropped for gas fees!", "ok");
+    } catch {
+      showToast("Airdrop failed — try faucet.solana.com", "err");
+    } finally {
+      setAirdropping(false);
+    }
+  };
+
   const handleOpenPosition = useCallback(async () => {
-    if (!wallet.publicKey || !providerRef.current || !programRef.current) {
+    if (!wallet.publicKey) {
       setVisible(true);
+      return;
+    }
+
+    if (!providerRef.current || !programRef.current) {
+      showToast("Program not loaded yet — please wait a moment and try again.", "err");
+      return;
+    }
+
+    if (mockBalance !== null && size > mockBalance) {
+      showToast(`Insufficient balance. You have $${mockBalance.toLocaleString()} USDC.`, "err");
       return;
     }
 
     setLoading(true);
     try {
       const currentPrice = prices[market];
+      setStatus("🔐 Encrypting position via Arcium X25519 ECDH...");
 
-      // Step 1: Show encryption starting
-      setStatus("🔐 Encrypting position data via Arcium X25519 ECDH...");
+      // Encrypt position data using Arcium SDK
+      const encrypted = await encryptPosition(
+        providerRef.current,
+        currentPrice,
+        size,
+        leverage,
+        side
+      );
 
-      // Convert to fixed-point integers for ARCIS
-      const entryPriceFixed = BigInt(Math.floor(currentPrice * 100));
-      const sizeFixed = BigInt(Math.floor(size * 100));
-      const leverageBig = BigInt(leverage);
-      const sideBig = BigInt(side === "long" ? 1 : 0);
+      setStatus("📡 Submitting encrypted position to Solana devnet...");
 
-      // Step 2: Encrypt using Arcium SDK
-      const encrypted = await encryptPosition(providerRef.current, {
-        entryPrice: entryPriceFixed,
-        sizeUsd: sizeFixed,
-        leverage: leverageBig,
-        side: sideBig,
-      });
-
-      setStatus("📡 Submitting encrypted position to Arcium MPC cluster 456...");
-
-      // Step 3: Submit to Solana + Arcium
+      // Submit to chain using real IDL accounts
       const sig = await submitOpenPosition(
         programRef.current,
-        providerRef.current,
         encrypted,
         wallet.publicKey
       );
 
-      setStatus("⏳ Waiting for Arcium MPC nodes to finalize computation...");
+      // Deduct from mock balance
+      setMockBalance((prev) => (prev ?? 0) - size);
 
-      // Step 4: Wait for MPC finalization
-      await waitForComputation(providerRef.current, encrypted.computationOffset);
-
-      // Step 5: Add to local state
       const newPos: Position = {
         id: Math.random().toString(36).slice(2),
         pair: market,
@@ -170,7 +210,7 @@ export default function TradingPage() {
       setStatus("");
 
       const msg = ghost
-        ? `👻 Ghost position opened — fully encrypted in Arcium MXE\nTx: ${sig.slice(0, 20)}...`
+        ? `👻 Ghost position opened — encrypted in Arcium MXE\nTx: ${sig.slice(0, 20)}...`
         : `✅ Position opened — encrypted by Arcium MPC\nTx: ${sig.slice(0, 20)}...`;
       showToast(msg, ghost ? "arcium" : "ok");
     } catch (err: any) {
@@ -180,7 +220,7 @@ export default function TradingPage() {
     } finally {
       setLoading(false);
     }
-  }, [wallet, prices, market, side, size, leverage, ghost, setVisible]);
+  }, [wallet, prices, market, side, size, leverage, ghost, mockBalance, setVisible]);
 
   const handleClosePosition = useCallback(
     async (pos: Position) => {
@@ -189,24 +229,24 @@ export default function TradingPage() {
       setLoading(true);
       try {
         const currentPrice = prices[pos.pair];
-        setStatus(`🔐 Computing PnL privately via Arcium MPC...`);
+        setStatus("🔐 Closing position on Solana devnet...");
 
-        const { signature, pnl } = await submitComputePnL(
+        const { signature } = await submitClosePosition(
           programRef.current,
-          providerRef.current,
-          pos.encrypted,
-          currentPrice,
-          wallet.publicKey
+          wallet.publicKey,
+          currentPrice
         );
 
+        const pnlUsd = estimatePnL(pos, currentPrice);
+        const returnAmount = pos.size + pnlUsd;
+
         setPositions((prev) => prev.filter((p) => p.id !== pos.id));
+        setMockBalance((prev) => (prev ?? 0) + returnAmount);
         setStatus("");
 
-        // pnl is in USD cents from ARCIS
-        const pnlUsd = pnl !== null ? Number(pnl) / 100 : estimatePnL(pos, currentPrice);
         const sign = pnlUsd >= 0 ? "+" : "";
         showToast(
-          `Position closed ✓\nRealized PnL: ${sign}$${pnlUsd.toFixed(2)}\n(Decrypted from Arcium MPC result)\nTx: ${signature.slice(0, 20)}...`,
+          `Position closed ✓\nRealized PnL: ${sign}$${pnlUsd.toFixed(2)}\nBalance updated\nTx: ${signature.slice(0, 20)}...`,
           pnlUsd >= 0 ? "ok" : "err"
         );
       } catch (err: any) {
@@ -220,7 +260,6 @@ export default function TradingPage() {
     [wallet, prices]
   );
 
-  // Estimate PnL locally if event not received
   function estimatePnL(pos: Position, currentPrice: number) {
     const delta =
       pos.side === "long" ? currentPrice - pos.entry : pos.entry - currentPrice;
@@ -240,12 +279,6 @@ export default function TradingPage() {
     return n.toFixed(3);
   }
 
-  const open24h: Record<string, number> = {
-    "BTC/USD": 66594,
-    "ETH/USD": 3451,
-    "SOL/USD": 175.96,
-  };
-
   const price = prices[market];
   const change = ((price - open24h[market]) / open24h[market]) * 100;
   const isUp = change >= 0;
@@ -259,7 +292,7 @@ export default function TradingPage() {
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#7b61ff] to-transparent opacity-60" />
 
         <div className="flex flex-col gap-[1px] mr-7">
-          <div className="font-display text-xl font-bold tracking-tight bg-gradient-to-r from-white to-[#7b61ff] bg-clip-text text-transparent">
+          <div className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-[#7b61ff] bg-clip-text text-transparent">
             PrivatePerps
           </div>
           <div className="text-[9px] text-[#3a5470] tracking-[2.5px] uppercase">
@@ -295,15 +328,35 @@ export default function TradingPage() {
           })}
         </div>
 
-        <div className="ml-auto flex items-center gap-2.5">
+        <div className="ml-auto flex items-center gap-2">
           {/* Arcium badge */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(123,97,255,0.1)] border border-[rgba(123,97,255,0.25)] rounded text-[10px] tracking-widest text-[#a89fff] uppercase">
             <div className="w-1.5 h-1.5 rounded-full bg-[#7b61ff] shadow-[0_0_6px_#7b61ff] animate-pulse" />
             Arcium MPC · Devnet
           </div>
+
+          {/* Mock USDC balance */}
+          {mockBalance !== null && (
+            <div className="px-3 py-1.5 bg-[rgba(0,232,150,0.08)] border border-[rgba(0,232,150,0.2)] rounded text-[10px] text-[#00e896]">
+              💰 ${mockBalance.toLocaleString(undefined, {maximumFractionDigits: 2})} USDC
+            </div>
+          )}
+
+          {/* Airdrop SOL button */}
+          {wallet.publicKey && (
+            <button
+              onClick={handleAirdrop}
+              disabled={airdropping}
+              className="px-3 py-1.5 border border-[#1a2535] rounded text-[10px] text-[#f0c060] hover:border-[#f0c060] hover:bg-[rgba(240,192,96,0.08)] transition-all disabled:opacity-30"
+            >
+              {airdropping ? "Airdropping..." : "🪙 Get SOL"}
+            </button>
+          )}
+
           <div className="flex items-center gap-1 px-2.5 py-1.5 bg-[rgba(0,255,209,0.08)] border border-[rgba(0,255,209,0.15)] rounded text-[9px] tracking-[1.5px] text-[#00c4a0] uppercase">
             🔒 Encrypted
           </div>
+
           <button
             onClick={() => wallet.publicKey ? wallet.disconnect() : setVisible(true)}
             className={`px-4 py-2 border rounded text-[11px] font-medium tracking-wide transition-all ${
@@ -329,7 +382,7 @@ export default function TradingPage() {
           ["Funding", "+0.0082%", "text-[#00e896]"],
           ["Next Funding", fundingTimer, "text-[#f0c060]"],
         ].map(([label, val, cls]) => (
-          <div key={label} className="flex flex-col gap-[1px] min-w-max">
+          <div key={label as string} className="flex flex-col gap-[1px] min-w-max">
             <span className="text-[9px] uppercase tracking-[1.5px] text-[#3a5470]">{label}</span>
             <span className={`text-[11px] font-medium ${cls || "text-[#c8daea]"}`}>{val}</span>
           </div>
@@ -343,7 +396,7 @@ export default function TradingPage() {
       {/* ── MAIN ── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* ── CHART AREA ── */}
+        {/* ── CHART / PRICE AREA ── */}
         <div className="flex-1 border-r border-[#1a2535] flex flex-col overflow-hidden">
           <div className="h-9 bg-[#080c12] border-b border-[#1a2535] flex items-center px-3.5 gap-0.5 flex-shrink-0">
             {["1m","5m","15m","1H","4H","1D"].map((tf, i) => (
@@ -353,14 +406,14 @@ export default function TradingPage() {
             ))}
             <div className="w-px h-3.5 bg-[#1a2535] mx-2" />
             <span className="ml-auto text-[9px] text-[#3a5470] tracking-wide flex items-center gap-1.5">
-              <span className="text-[#7b61ff]">⚡ Arcium MPC</span> — liquidation checks encrypted · only PnL revealed
+              <span className="text-[#7b61ff]">⚡ Arcium MPC</span> — positions encrypted · only PnL revealed on close
             </span>
           </div>
 
           {/* Price display */}
           <div className="flex-1 flex flex-col items-start justify-center p-6 relative bg-[#04060a]">
             <div className="absolute inset-0 bg-gradient-to-br from-[rgba(123,97,255,0.03)] to-transparent pointer-events-none" />
-            <div className={`font-display text-6xl font-bold tracking-tight ${isUp ? "text-[#00e896]" : "text-[#ff2d55]"}`} style={{textShadow: isUp ? "0 0 40px rgba(0,232,150,0.3)" : "0 0 40px rgba(255,45,85,0.3)"}}>
+            <div className={`text-6xl font-bold tracking-tight ${isUp ? "text-[#00e896]" : "text-[#ff2d55]"}`} style={{textShadow: isUp ? "0 0 40px rgba(0,232,150,0.3)" : "0 0 40px rgba(255,45,85,0.3)"}}>
               ${fmt(price)}
             </div>
             <div className={`text-sm mt-1.5 tracking-wide ${isUp ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
@@ -370,13 +423,19 @@ export default function TradingPage() {
               <div>Program: <span className="text-[#7b61ff]">{PROGRAM_ID.toString()}</span></div>
               <div>MXE Cluster: <span className="text-[#7b61ff]">offset 456 · devnet</span></div>
               <div>Circuits: <span className="text-[#00ffd1]">open_position · check_liquidation · compute_pnl</span></div>
+              <div>SDK: <span className="text-[#00ffd1]">@arcium-hq/client · X25519 ECDH + RescueCipher</span></div>
             </div>
             {status && (
               <div className="mt-4 px-4 py-2 bg-[rgba(123,97,255,0.1)] border border-[rgba(123,97,255,0.3)] rounded text-[11px] text-[#c4b5fd] max-w-lg">
                 {status}
               </div>
             )}
-            <div className="absolute bottom-5 right-5 font-display text-[80px] font-bold text-white opacity-[0.02] tracking-widest pointer-events-none">
+            {!wallet.publicKey && (
+              <div className="mt-4 px-4 py-3 bg-[rgba(123,97,255,0.08)] border border-[rgba(123,97,255,0.2)] rounded text-[11px] text-[#a89fff] max-w-lg">
+                👋 Connect your wallet to start trading. You'll receive <span className="text-[#00e896] font-semibold">10,000 mock USDC</span> to test with.
+              </div>
+            )}
+            <div className="absolute bottom-5 right-5 text-[80px] font-bold text-white opacity-[0.02] tracking-widest pointer-events-none">
               PrivatePerps
             </div>
           </div>
@@ -399,7 +458,9 @@ export default function TradingPage() {
                 <div className="flex flex-col items-center justify-center h-full gap-2 text-[#3a5470]">
                   <span className="text-3xl opacity-40">🔐</span>
                   <span className="text-[11px] tracking-wide">No open positions</span>
-                  <span className="text-[9px] opacity-60">Connect wallet and open a position — encrypted by Arcium</span>
+                  <span className="text-[9px] opacity-60">
+                    {wallet.publicKey ? "Open a position using the panel on the right" : "Connect wallet to start trading"}
+                  </span>
                 </div>
               ) : (
                 <table className="w-full border-collapse">
@@ -418,7 +479,7 @@ export default function TradingPage() {
                       const isPos = pnl >= 0;
                       return (
                         <tr key={pos.id} className="hover:bg-[rgba(255,255,255,0.015)] transition-colors">
-                          <td className="px-3.5 py-2.5 font-display font-bold text-xs whitespace-nowrap">
+                          <td className="px-3.5 py-2.5 font-bold text-xs whitespace-nowrap">
                             {pos.pair}
                             {pos.ghost && <span className="ml-1.5 text-[9px] px-1.5 py-0.5 bg-[rgba(123,97,255,0.1)] text-[#c4b5fd] border border-[rgba(123,97,255,0.2)] rounded">👻</span>}
                           </td>
@@ -480,6 +541,16 @@ export default function TradingPage() {
 
           <div className="p-3.5 flex flex-col gap-3">
 
+            {/* Mock balance display in panel */}
+            {mockBalance !== null && (
+              <div className="flex items-center justify-between px-3 py-2 bg-[#0d1219] border border-[#1a2535] rounded">
+                <span className="text-[9px] uppercase tracking-[1.5px] text-[#3a5470]">Available</span>
+                <span className="text-[11px] text-[#00e896] font-semibold">
+                  ${mockBalance.toLocaleString(undefined, {maximumFractionDigits: 2})} USDC
+                </span>
+              </div>
+            )}
+
             {/* Size */}
             <div>
               <div className="text-[9px] uppercase tracking-[2px] text-[#3a5470] mb-1.5">Size (USD)</div>
@@ -495,8 +566,11 @@ export default function TradingPage() {
               </div>
               <div className="grid grid-cols-4 gap-[3px] mt-1">
                 {[25,50,75,100].map((pct) => (
-                  <button key={pct} onClick={() => setSize(Math.floor(10000 * pct / 100))}
-                    className="py-1.5 border border-[#1a2535] bg-[#111820] text-[#3a5470] text-[10px] rounded cursor-pointer hover:border-[#1f2e42] hover:text-[#6e8faa] transition-all">
+                  <button
+                    key={pct}
+                    onClick={() => setSize(Math.floor((mockBalance ?? 10000) * pct / 100))}
+                    className="py-1.5 border border-[#1a2535] bg-[#111820] text-[#3a5470] text-[10px] rounded cursor-pointer hover:border-[#1f2e42] hover:text-[#6e8faa] transition-all"
+                  >
                     {pct === 100 ? "Max" : `${pct}%`}
                   </button>
                 ))}
@@ -598,11 +672,12 @@ export default function TradingPage() {
                   : "bg-gradient-to-r from-[#660020] to-[#ff2d55] text-white hover:shadow-[0_0_24px_rgba(255,45,85,0.35)] hover:-translate-y-px"
               }`}
             >
-              {loading ? status.slice(0, 30) + "..." : (
-                wallet.publicKey
+              {loading
+                ? (status.slice(0, 28) + "...")
+                : wallet.publicKey
                   ? `${side === "long" ? "▲ Long" : "▼ Short"} ${market}`
-                  : "Connect Wallet"
-              )}
+                  : "Connect Wallet to Trade"
+              }
             </button>
 
             <div className="text-center text-[9px] text-[#3a5470] tracking-wide flex items-center justify-center gap-1">
@@ -624,84 +699,4 @@ export default function TradingPage() {
       )}
     </div>
   );
-}
-
-// Minimal IDL for PrivatePerps program
-// In production: import from target/idl/private_perps.json
-function getIDL() {
-  return {
-    version: "0.1.0",
-    name: "private_perps",
-    instructions: [
-      {
-        name: "openPosition",
-        accounts: [
-          { name: "trader", isMut: true, isSigner: true },
-          { name: "positionAccount", isMut: true, isSigner: false },
-          { name: "computationAccount", isMut: true, isSigner: false },
-          { name: "clusterAccount", isMut: false, isSigner: false },
-          { name: "mxeAccount", isMut: false, isSigner: false },
-          { name: "mempoolAccount", isMut: true, isSigner: false },
-          { name: "executingPool", isMut: true, isSigner: false },
-          { name: "compDefAccount", isMut: false, isSigner: false },
-          { name: "systemProgram", isMut: false, isSigner: false },
-        ],
-        args: [
-          { name: "computationOffset", type: "u64" },
-          { name: "entryPrice", type: { array: ["u8", 32] } },
-          { name: "sizeUsd", type: { array: ["u8", 32] } },
-          { name: "leverage", type: { array: ["u8", 32] } },
-          { name: "side", type: { array: ["u8", 32] } },
-          { name: "clientPublicKey", type: { array: ["u8", 32] } },
-          { name: "nonce", type: "u128" },
-        ],
-      },
-      {
-        name: "computePnl",
-        accounts: [
-          { name: "trader", isMut: true, isSigner: true },
-          { name: "positionAccount", isMut: true, isSigner: false },
-          { name: "computationAccount", isMut: true, isSigner: false },
-          { name: "clusterAccount", isMut: false, isSigner: false },
-          { name: "mxeAccount", isMut: false, isSigner: false },
-          { name: "mempoolAccount", isMut: true, isSigner: false },
-          { name: "executingPool", isMut: true, isSigner: false },
-          { name: "compDefAccount", isMut: false, isSigner: false },
-          { name: "systemProgram", isMut: false, isSigner: false },
-        ],
-        args: [
-          { name: "computationOffset", type: "u64" },
-          { name: "currentPrice", type: "u64" },
-          { name: "clientPublicKey", type: { array: ["u8", 32] } },
-          { name: "nonce", type: "u128" },
-        ],
-      },
-    ],
-    accounts: [
-      {
-        name: "PositionAccount",
-        type: {
-          kind: "struct",
-          fields: [
-            { name: "owner", type: "publicKey" },
-            { name: "isOpen", type: "bool" },
-            { name: "openedAt", type: "i64" },
-            { name: "exitPrice", type: "u64" },
-            { name: "encData", type: { array: ["u8", 128] } },
-          ],
-        },
-      },
-    ],
-    events: [
-      {
-        name: "PnLComputedEvent",
-        fields: [
-          { name: "trader", type: "publicKey", index: false },
-          { name: "encryptedResult", type: { array: ["u8", 32] }, index: false },
-          { name: "nonce", type: { array: ["u8", 16] }, index: false },
-        ],
-      },
-    ],
-    errors: [],
-  };
 }
