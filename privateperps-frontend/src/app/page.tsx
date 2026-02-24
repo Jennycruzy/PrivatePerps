@@ -4,27 +4,25 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import * as anchor from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
 import {
   PROGRAM_ID,
   encryptPosition,
   submitOpenPosition,
+  submitOpenGhostPosition,
   submitClosePosition,
   ArciumEncryptedPosition,
 } from "@/utils/arciumClient";
 import IDL from "@/idl/private_perps.json";
 
-const BASE_PRICES: Record<string, number> = {
-  "BTC/USD": 67420,
-  "ETH/USD": 3481,
-  "SOL/USD": 175.4,
-};
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-const open24h: Record<string, number> = {
-  "BTC/USD": 66594,
-  "ETH/USD": 3451,
-  "SOL/USD": 175.96,
-};
+interface Candle {
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+}
 
 interface Position {
   id: string;
@@ -39,30 +37,184 @@ interface Position {
   ts: number;
 }
 
+const MARKETS: Record<string, { coingeckoId: string; label: string; color: string }> = {
+  "BTC/USD": { coingeckoId: "bitcoin",  label: "BTC",     color: "#f7931a" },
+  "ETH/USD": { coingeckoId: "ethereum", label: "ETH",     color: "#627eea" },
+  "SOL/USD": { coingeckoId: "solana",   label: "SOL",     color: "#9945ff" },
+};
+
+// ─── Mini Candlestick Chart ───────────────────────────────────────────────────
+
+function CandleChart({ candles, color }: { candles: Candle[]; color: string }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  if (!candles.length) return (
+    <div className="flex-1 flex items-center justify-center text-[#2a3a50] text-xs">
+      Loading chart...
+    </div>
+  );
+
+  const W = 900, H = 320;
+  const pad = { t: 20, b: 30, l: 60, r: 20 };
+  const cw = (W - pad.l - pad.r) / candles.length;
+  const bodyW = Math.max(cw * 0.6, 2);
+
+  const highs = candles.map((c) => c.h);
+  const lows  = candles.map((c) => c.l);
+  const minP  = Math.min(...lows);
+  const maxP  = Math.max(...highs);
+  const range = maxP - minP || 1;
+
+  const py = (p: number) => pad.t + ((maxP - p) / range) * (H - pad.t - pad.b);
+  const px = (i: number) => pad.l + i * cw + cw / 2;
+
+  // Y-axis labels
+  const yTicks = 5;
+  const yLabels = Array.from({ length: yTicks }, (_, i) => {
+    const val = minP + (range * i) / (yTicks - 1);
+    return { y: py(val), val };
+  });
+
+  return (
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="none">
+      {/* Grid lines */}
+      {yLabels.map(({ y, val }) => (
+        <g key={val}>
+          <line x1={pad.l} y1={y} x2={W - pad.r} y2={y} stroke="#0d1a2a" strokeWidth="1" />
+          <text x={pad.l - 6} y={y + 4} fill="#3a5470" fontSize="10" textAnchor="end">
+            {val >= 1000 ? `$${(val / 1000).toFixed(1)}k` : `$${val.toFixed(0)}`}
+          </text>
+        </g>
+      ))}
+
+      {/* Candles */}
+      {candles.map((c, i) => {
+        const isUp  = c.c >= c.o;
+        const fill  = isUp ? "#00e896" : "#ff2d55";
+        const top   = py(Math.max(c.o, c.c));
+        const bot   = py(Math.min(c.o, c.c));
+        const bodyH = Math.max(bot - top, 1);
+        const x     = px(i);
+        return (
+          <g key={i}>
+            <line x1={x} y1={py(c.h)} x2={x} y2={py(c.l)} stroke={fill} strokeWidth="1" opacity="0.7" />
+            <rect x={x - bodyW / 2} y={top} width={bodyW} height={bodyH} fill={fill} opacity="0.9" rx="0.5" />
+          </g>
+        );
+      })}
+
+      {/* Current price line */}
+      {candles.length > 0 && (() => {
+        const last = candles[candles.length - 1];
+        const y = py(last.c);
+        const isUp = last.c >= last.o;
+        const lineColor = isUp ? "#00e896" : "#ff2d55";
+        return (
+          <g>
+            <line x1={pad.l} y1={y} x2={W - pad.r} y2={y} stroke={lineColor} strokeWidth="0.5" strokeDasharray="4,4" opacity="0.5" />
+            <rect x={W - pad.r} y={y - 9} width={pad.r + 2} height={18} fill={lineColor} opacity="0.15" rx="2" />
+          </g>
+        );
+      })()}
+    </svg>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
 export default function TradingPage() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { setVisible } = useWalletModal();
-  const programRef = useRef<anchor.Program<any> | null>(null);
-  const providerRef = useRef<anchor.AnchorProvider | null>(null);
+  const programRef   = useRef<anchor.Program<any> | null>(null);
+  const providerRef  = useRef<anchor.AnchorProvider | null>(null);
+  const initDoneRef  = useRef(false);
 
-  const [market, setMarket] = useState("BTC/USD");
-  const [side, setSide] = useState<"long" | "short">("long");
-  const [size, setSize] = useState(500);
-  const [leverage, setLeverage] = useState(10);
-  const [ghost, setGhost] = useState(false);
-  const [prices, setPrices] = useState({ ...BASE_PRICES });
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("");
-  const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
-  const [fundingTimer, setFundingTimer] = useState("08:00:00");
+  const [market,     setMarket]     = useState("BTC/USD");
+  const [side,       setSide]       = useState<"long" | "short">("long");
+  const [size,       setSize]       = useState(500);
+  const [leverage,   setLeverage]   = useState(10);
+  const [ghost,      setGhost]      = useState(false);
+  const [positions,  setPositions]  = useState<Position[]>([]);
+  const [loading,    setLoading]    = useState(false);
+  const [status,     setStatus]     = useState("");
+  const [toast,      setToast]      = useState<{ msg: string; type: string } | null>(null);
   const [mockBalance, setMockBalance] = useState<number | null>(null);
   const [airdropping, setAirdropping] = useState(false);
+  const [activeTab,  setActiveTab]  = useState<"positions" | "orders">("positions");
 
-  // Initialize Anchor program when wallet connects
+  // Live price state
+  const [prices,     setPrices]     = useState<Record<string, number>>({ "BTC/USD": 0, "ETH/USD": 0, "SOL/USD": 0 });
+  const [prevPrices, setPrevPrices] = useState<Record<string, number>>({});
+  const [candles,    setCandles]    = useState<Candle[]>([]);
+  const [loadingChart, setLoadingChart] = useState(true);
+  const [fundingTimer, setFundingTimer] = useState("08:00:00");
+
+  // ── Fetch live prices from CoinGecko ──────────────────────────────────────
+  const fetchPrices = useCallback(async () => {
+    try {
+      const ids = Object.values(MARKETS).map((m) => m.coingeckoId).join(",");
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
+        { headers: { Accept: "application/json" } }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setPrevPrices((p) => ({ ...p, ...prices }));
+      const next: Record<string, number> = {};
+      for (const [pair, { coingeckoId }] of Object.entries(MARKETS)) {
+        if (data[coingeckoId]) next[pair] = data[coingeckoId].usd;
+      }
+      if (Object.keys(next).length) setPrices((p) => ({ ...p, ...next }));
+    } catch {}
+  }, [prices]);
+
+  // ── Fetch OHLC candles from CoinGecko ─────────────────────────────────────
+  const fetchCandles = useCallback(async (mkt: string) => {
+    setLoadingChart(true);
+    try {
+      const id = MARKETS[mkt].coingeckoId;
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/coins/${id}/ohlc?vs_currency=usd&days=1`,
+        { headers: { Accept: "application/json" } }
+      );
+      if (!res.ok) return;
+      const raw: [number, number, number, number, number][] = await res.json();
+      setCandles(raw.map(([t, o, h, l, c]) => ({ t, o, h, l, c })));
+    } catch {}
+    finally { setLoadingChart(false); }
+  }, []);
+
+  useEffect(() => { fetchPrices(); }, []);
+  useEffect(() => {
+    fetchCandles(market);
+    const iv = setInterval(() => fetchCandles(market), 60000);
+    return () => clearInterval(iv);
+  }, [market]);
+  useEffect(() => {
+    const iv = setInterval(fetchPrices, 15000);
+    return () => clearInterval(iv);
+  }, [fetchPrices]);
+
+  // ── Funding countdown ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const now  = new Date();
+      const next = new Date(now);
+      next.setUTCHours(Math.ceil(now.getUTCHours() / 8) * 8, 0, 0, 0);
+      if (next <= now) next.setUTCHours(next.getUTCHours() + 8);
+      const d = next.getTime() - now.getTime();
+      const h = String(Math.floor(d / 3600000)).padStart(2, "0");
+      const m = String(Math.floor((d % 3600000) / 60000)).padStart(2, "0");
+      const s = String(Math.floor((d % 60000) / 1000)).padStart(2, "0");
+      setFundingTimer(`${h}:${m}:${s}`);
+    }, 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // ── Initialize Anchor program ──────────────────────────────────────────────
   useEffect(() => {
     if (!wallet.publicKey || !wallet.signTransaction) return;
+    if (initDoneRef.current && programRef.current) return;
 
     const provider = new anchor.AnchorProvider(
       connection,
@@ -73,298 +225,218 @@ export default function TradingPage() {
     anchor.setProvider(provider);
 
     try {
-      // Use real compiled IDL from target/idl/private_perps.json
-      programRef.current = new anchor.Program(IDL as any, PROGRAM_ID, provider);
-      console.log("✅ Program loaded:", PROGRAM_ID.toString());
+      programRef.current = new anchor.Program(IDL as any, provider);
+      initDoneRef.current = true;
+      console.log("✅ Program loaded");
     } catch (e) {
       console.error("Program load error:", e);
+      // Fallback: try with explicit program ID
+      try {
+        programRef.current = new anchor.Program(IDL as any, PROGRAM_ID, provider);
+        initDoneRef.current = true;
+        console.log("✅ Program loaded (fallback)");
+      } catch (e2) {
+        console.error("Program load error fallback:", e2);
+      }
     }
 
-    // Give user 10,000 mock USDC on connect for testing
     if (mockBalance === null) {
       setMockBalance(10000);
-      showToast("🎉 Welcome! 10,000 mock USDC added to your account for testing.", "ok");
+      showToast("🎉 10,000 mock USDC added for testing", "ok");
     }
   }, [wallet.publicKey, connection]);
 
-  // Clear state on disconnect
   useEffect(() => {
     if (!wallet.publicKey) {
-      programRef.current = null;
+      programRef.current  = null;
       providerRef.current = null;
+      initDoneRef.current = false;
       setMockBalance(null);
       setPositions([]);
     }
   }, [wallet.publicKey]);
 
-  // Price ticker
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPrices((prev) => {
-        const next = { ...prev };
-        for (const pair of Object.keys(next)) {
-          const v = pair === "BTC/USD" ? 0.0007 : pair === "ETH/USD" ? 0.0009 : 0.0012;
-          next[pair] *= 1 + (Math.random() - 0.499) * v;
-        }
-        return next;
-      });
-    }, 1500);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Funding timer
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date();
-      const next = new Date(now);
-      next.setUTCHours(Math.ceil(now.getUTCHours() / 8) * 8, 0, 0, 0);
-      if (next <= now) next.setUTCHours(next.getUTCHours() + 8);
-      const d = next.getTime() - now.getTime();
-      const h = String(Math.floor(d / 3600000)).padStart(2, "0");
-      const m = String(Math.floor((d % 3600000) / 60000)).padStart(2, "0");
-      const s = String(Math.floor((d % 60000) / 1000)).padStart(2, "0");
-      setFundingTimer(`${h}:${m}:${s}`);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   const showToast = (msg: string, type: string) => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 5000);
+    setTimeout(() => setToast(null), 6000);
   };
 
-  // Airdrop devnet SOL for gas fees
   const handleAirdrop = async () => {
     if (!wallet.publicKey) return;
     setAirdropping(true);
     try {
-      const sig = await connection.requestAirdrop(
-        wallet.publicKey,
-        2 * anchor.web3.LAMPORTS_PER_SOL
-      );
+      const sig = await connection.requestAirdrop(wallet.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
       await connection.confirmTransaction(sig);
       showToast("✅ 2 devnet SOL airdropped for gas fees!", "ok");
-    } catch {
-      showToast("Airdrop failed — try faucet.solana.com", "err");
-    } finally {
-      setAirdropping(false);
-    }
+    } catch { showToast("Airdrop failed — try faucet.solana.com", "err"); }
+    finally { setAirdropping(false); }
   };
 
   const handleOpenPosition = useCallback(async () => {
-    if (!wallet.publicKey) {
-      setVisible(true);
-      return;
-    }
-
+    if (!wallet.publicKey) { setVisible(true); return; }
     if (!providerRef.current || !programRef.current) {
-      showToast("Program not loaded yet — please wait a moment and try again.", "err");
+      showToast("Initializing program — please try again in a moment.", "err");
       return;
     }
-
     if (mockBalance !== null && size > mockBalance) {
       showToast(`Insufficient balance. You have $${mockBalance.toLocaleString()} USDC.`, "err");
       return;
     }
+    const currentPrice = prices[market];
+    if (!currentPrice) { showToast("Price not loaded yet — please wait.", "err"); return; }
 
     setLoading(true);
     try {
-      const currentPrice = prices[market];
-      setStatus("🔐 Encrypting position via Arcium X25519 ECDH...");
+      setStatus(ghost ? "👻 Encrypting ghost position..." : "🔐 Encrypting via Arcium X25519 ECDH...");
+      const encrypted = await encryptPosition(providerRef.current, currentPrice, size, leverage, side);
 
-      // Encrypt position data using Arcium SDK
-      const encrypted = await encryptPosition(
-        providerRef.current,
-        currentPrice,
-        size,
-        leverage,
-        side
-      );
+      setStatus(ghost ? "👻 Submitting ghost position on-chain..." : "📡 Submitting to Solana devnet...");
+      const sig = ghost
+        ? await submitOpenGhostPosition(programRef.current, encrypted, wallet.publicKey)
+        : await submitOpenPosition(programRef.current, encrypted, wallet.publicKey);
 
-      setStatus("📡 Submitting encrypted position to Solana devnet...");
-
-      // Submit to chain using real IDL accounts
-      const sig = await submitOpenPosition(
-        programRef.current,
-        encrypted,
-        wallet.publicKey
-      );
-
-      // Deduct from mock balance
       setMockBalance((prev) => (prev ?? 0) - size);
-
-      const newPos: Position = {
-        id: Math.random().toString(36).slice(2),
-        pair: market,
-        side,
-        size,
-        leverage,
-        entry: currentPrice,
-        encrypted,
-        txSig: sig,
-        ghost,
-        ts: Date.now(),
-      };
-
-      setPositions((prev) => [...prev, newPos]);
+      setPositions((prev) => [...prev, {
+        id: encrypted.positionId.toString(),
+        pair: market, side, size, leverage,
+        entry: currentPrice, encrypted,
+        txSig: sig, ghost, ts: Date.now(),
+      }]);
       setStatus("");
-
-      const msg = ghost
-        ? `👻 Ghost position opened — encrypted in Arcium MXE\nTx: ${sig.slice(0, 20)}...`
-        : `✅ Position opened — encrypted by Arcium MPC\nTx: ${sig.slice(0, 20)}...`;
-      showToast(msg, ghost ? "arcium" : "ok");
+      showToast(
+        ghost
+          ? `👻 Ghost position opened\nAll details hidden forever\nTx: ${sig.slice(0, 20)}...`
+          : `✅ Position opened\nEncrypted by Arcium MPC\nTx: ${sig.slice(0, 20)}...`,
+        ghost ? "arcium" : "ok"
+      );
     } catch (err: any) {
       console.error(err);
       setStatus("");
       showToast(`Error: ${err.message || "Transaction failed"}`, "err");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }, [wallet, prices, market, side, size, leverage, ghost, mockBalance, setVisible]);
 
-  const handleClosePosition = useCallback(
-    async (pos: Position) => {
-      if (!wallet.publicKey || !providerRef.current || !programRef.current) return;
+  const handleClosePosition = useCallback(async (pos: Position) => {
+    if (!wallet.publicKey || !providerRef.current || !programRef.current) return;
+    setLoading(true);
+    try {
+      const currentPrice = prices[pos.pair];
+      setStatus("Closing position...");
+      const { signature } = await submitClosePosition(
+        programRef.current, wallet.publicKey,
+        pos.encrypted.positionId, currentPrice, pos.ghost
+      );
+      const pnlUsd = pos.ghost ? null : estimatePnL(pos, currentPrice);
+      const ret    = pos.ghost ? pos.size : pos.size + (pnlUsd ?? 0);
+      setPositions((prev) => prev.filter((p) => p.id !== pos.id));
+      setMockBalance((prev) => (prev ?? 0) + ret);
+      setStatus("");
+      showToast(
+        pos.ghost
+          ? `👻 Ghost closed\nMargin returned: $${pos.size.toLocaleString()}\nPnL: 🔒 Hidden forever\nTx: ${signature.slice(0, 20)}...`
+          : `Closed ✓  PnL: ${(pnlUsd ?? 0) >= 0 ? "+" : ""}$${(pnlUsd ?? 0).toFixed(2)}\nTx: ${signature.slice(0, 20)}...`,
+        pos.ghost ? "arcium" : (pnlUsd ?? 0) >= 0 ? "ok" : "err"
+      );
+    } catch (err: any) {
+      setStatus("");
+      showToast(`Close error: ${err.message}`, "err");
+    } finally { setLoading(false); }
+  }, [wallet, prices]);
 
-      setLoading(true);
-      try {
-        const currentPrice = prices[pos.pair];
-        setStatus("🔐 Closing position on Solana devnet...");
-
-        const { signature } = await submitClosePosition(
-          programRef.current,
-          wallet.publicKey,
-          currentPrice
-        );
-
-        const pnlUsd = estimatePnL(pos, currentPrice);
-        const returnAmount = pos.size + pnlUsd;
-
-        setPositions((prev) => prev.filter((p) => p.id !== pos.id));
-        setMockBalance((prev) => (prev ?? 0) + returnAmount);
-        setStatus("");
-
-        const sign = pnlUsd >= 0 ? "+" : "";
-        showToast(
-          `Position closed ✓\nRealized PnL: ${sign}$${pnlUsd.toFixed(2)}\nBalance updated\nTx: ${signature.slice(0, 20)}...`,
-          pnlUsd >= 0 ? "ok" : "err"
-        );
-      } catch (err: any) {
-        console.error(err);
-        setStatus("");
-        showToast(`Close error: ${err.message}`, "err");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [wallet, prices]
-  );
-
-  function estimatePnL(pos: Position, currentPrice: number) {
-    const delta =
-      pos.side === "long" ? currentPrice - pos.entry : pos.entry - currentPrice;
+  function estimatePnL(pos: Position, cur: number) {
+    const delta = pos.side === "long" ? cur - pos.entry : pos.entry - cur;
     return (delta / pos.entry) * pos.size * pos.leverage;
   }
 
   function calcPnL(pos: Position) {
+    if (pos.ghost) return { pnl: null, pct: null, cur: null };
     const cur = prices[pos.pair];
     const pnl = estimatePnL(pos, cur);
-    const pct = (pnl / pos.size) * 100;
-    return { pnl, pct, cur };
+    return { pnl, pct: (pnl / pos.size) * 100, cur };
   }
 
   function fmt(n: number) {
-    if (n >= 1000) return n.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    if (n >= 10) return n.toFixed(2);
-    return n.toFixed(3);
+    if (!n) return "—";
+    if (n >= 10000) return `$${(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    if (n >= 100)   return `$${n.toFixed(2)}`;
+    return `$${n.toFixed(3)}`;
   }
 
-  const price = prices[market];
-  const change = ((price - open24h[market]) / open24h[market]) * 100;
-  const isUp = change >= 0;
+  const price   = prices[market] || 0;
+  const mktConf = MARKETS[market];
   const notional = size * leverage;
+  const ghostCount  = positions.filter((p) => p.ghost).length;
+  const normalCount = positions.filter((p) => !p.ghost).length;
+
+  // 24h change — derived from candles
+  const change24h = candles.length >= 2
+    ? ((candles[candles.length - 1].c - candles[0].o) / candles[0].o) * 100
+    : 0;
+  const isUp = change24h >= 0;
 
   return (
-    <div className="flex flex-col h-screen bg-[#04060a] text-[#c8daea] font-mono text-xs overflow-hidden">
+    <div className="flex flex-col h-screen bg-[#020508] text-[#c8daea] font-mono text-xs overflow-hidden select-none">
 
-      {/* ── NAV ── */}
-      <nav className="h-[52px] bg-[#080c12] border-b border-[#1a2535] flex items-center px-5 gap-0 flex-shrink-0 relative">
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#7b61ff] to-transparent opacity-60" />
+      {/* ── TOP NAV ── */}
+      <nav className="h-[48px] bg-[#06090f] border-b border-[#0f1923] flex items-center px-4 gap-0 flex-shrink-0 relative z-10">
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#7b61ff] to-transparent opacity-40" />
 
-        <div className="flex flex-col gap-[1px] mr-7">
-          <div className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-[#7b61ff] bg-clip-text text-transparent">
-            PrivatePerps
-          </div>
-          <div className="text-[9px] text-[#3a5470] tracking-[2.5px] uppercase">
-            Perps without predators
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 mr-6">
+          <div className="w-6 h-6 rounded bg-gradient-to-br from-[#7b61ff] to-[#00ffd1] flex items-center justify-center text-[10px] font-black text-black">P</div>
+          <div>
+            <div className="text-[13px] font-bold tracking-tight text-white">PrivatePerps</div>
+            <div className="text-[8px] text-[#3a5470] tracking-[2px] uppercase leading-none">Perps without predators</div>
           </div>
         </div>
 
-        <div className="w-px h-6 bg-[#1a2535] mx-4" />
+        <div className="w-px h-5 bg-[#0f1923] mx-3" />
 
         {/* Market tabs */}
-        <div className="flex">
-          {Object.keys(BASE_PRICES).map((pair) => {
-            const p = prices[pair];
-            const chg = ((p - open24h[pair]) / open24h[pair]) * 100;
-            const up = chg >= 0;
-            return (
-              <button
-                key={pair}
-                onClick={() => setMarket(pair)}
-                className={`flex items-center gap-2.5 px-4 h-[52px] cursor-pointer border-b-2 transition-all ${
-                  market === pair
-                    ? "text-[#c8daea] border-[#7b61ff]"
-                    : "text-[#3a5470] border-transparent hover:text-[#6e8faa]"
-                }`}
-              >
-                <span className="font-semibold text-xs tracking-wide">{pair}</span>
-                <span className="text-xs font-semibold">${fmt(p)}</span>
-                <span className={`text-[10px] ${up ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
-                  {up ? "+" : ""}{chg.toFixed(2)}%
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {Object.entries(MARKETS).map(([pair, conf]) => {
+          const p = prices[pair] || 0;
+          const prev = prevPrices[pair] || p;
+          const up = p >= prev;
+          return (
+            <button key={pair} onClick={() => setMarket(pair)}
+              className={`flex items-center gap-2 px-3.5 h-[48px] cursor-pointer border-b-2 transition-all ${
+                market === pair ? "border-[#7b61ff] text-white" : "border-transparent text-[#3a5470] hover:text-[#6e8faa]"
+              }`}>
+              <span className="text-[10px] font-bold" style={{ color: market === pair ? conf.color : undefined }}>{conf.label}</span>
+              <span className={`text-[11px] font-semibold tabular-nums transition-colors ${up ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
+                {p ? `$${p >= 1000 ? p.toLocaleString(undefined, { maximumFractionDigits: 0 }) : p.toFixed(2)}` : "—"}
+              </span>
+            </button>
+          );
+        })}
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Arcium badge */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(123,97,255,0.1)] border border-[rgba(123,97,255,0.25)] rounded text-[10px] tracking-widest text-[#a89fff] uppercase">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#7b61ff] shadow-[0_0_6px_#7b61ff] animate-pulse" />
-            Arcium MPC · Devnet
+          {/* Arcium status */}
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(123,97,255,0.08)] border border-[rgba(123,97,255,0.2)] rounded text-[9px] tracking-widest text-[#7b61ff] uppercase">
+            <div className="w-1.5 h-1.5 rounded-full bg-[#7b61ff] animate-pulse" />
+            MPC · Devnet
           </div>
 
-          {/* Mock USDC balance */}
           {mockBalance !== null && (
-            <div className="px-3 py-1.5 bg-[rgba(0,232,150,0.08)] border border-[rgba(0,232,150,0.2)] rounded text-[10px] text-[#00e896]">
-              💰 ${mockBalance.toLocaleString(undefined, {maximumFractionDigits: 2})} USDC
+            <div className="px-2.5 py-1 bg-[rgba(0,232,150,0.06)] border border-[rgba(0,232,150,0.15)] rounded text-[10px] text-[#00e896]">
+              💰 ${mockBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </div>
           )}
 
-          {/* Airdrop SOL button */}
           {wallet.publicKey && (
-            <button
-              onClick={handleAirdrop}
-              disabled={airdropping}
-              className="px-3 py-1.5 border border-[#1a2535] rounded text-[10px] text-[#f0c060] hover:border-[#f0c060] hover:bg-[rgba(240,192,96,0.08)] transition-all disabled:opacity-30"
-            >
-              {airdropping ? "Airdropping..." : "🪙 Get SOL"}
+            <button onClick={handleAirdrop} disabled={airdropping}
+              className="px-2.5 py-1 border border-[#1a2535] rounded text-[9px] text-[#f0c060] hover:border-[#f0c060] transition-all disabled:opacity-30">
+              {airdropping ? "..." : "🪙 SOL"}
             </button>
           )}
 
-          <div className="flex items-center gap-1 px-2.5 py-1.5 bg-[rgba(0,255,209,0.08)] border border-[rgba(0,255,209,0.15)] rounded text-[9px] tracking-[1.5px] text-[#00c4a0] uppercase">
-            🔒 Encrypted
-          </div>
-
           <button
             onClick={() => wallet.publicKey ? wallet.disconnect() : setVisible(true)}
-            className={`px-4 py-2 border rounded text-[11px] font-medium tracking-wide transition-all ${
+            className={`px-3 py-1.5 border rounded text-[10px] font-medium transition-all ${
               wallet.publicKey
-                ? "border-[#00e896] text-[#00e896] bg-[rgba(0,232,150,0.1)]"
-                : "border-[#1f2e42] text-[#6e8faa] hover:border-[#7b61ff] hover:text-[#7b61ff] hover:bg-[rgba(123,97,255,0.08)]"
-            }`}
-          >
+                ? "border-[#00e896] text-[#00e896] bg-[rgba(0,232,150,0.08)]"
+                : "border-[#1f2e42] text-[#6e8faa] hover:border-[#7b61ff] hover:text-[#7b61ff]"
+            }`}>
             {wallet.publicKey
               ? `${wallet.publicKey.toString().slice(0, 4)}...${wallet.publicKey.toString().slice(-4)}`
               : "Connect Wallet"}
@@ -372,102 +444,146 @@ export default function TradingPage() {
         </div>
       </nav>
 
-      {/* ── STATS BAR ── */}
-      <div className="h-[34px] bg-[#080c12] border-b border-[#1a2535] flex items-center px-5 gap-7 flex-shrink-0 overflow-x-auto">
+      {/* ── MARKET STATS BAR ── */}
+      <div className="h-[32px] bg-[#06090f] border-b border-[#0f1923] flex items-center px-4 gap-6 flex-shrink-0 overflow-x-auto">
+        <div className="flex items-baseline gap-1.5 min-w-max">
+          <span className="text-[13px] font-bold text-white tabular-nums">
+            {price ? `$${price >= 1000 ? price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : price.toFixed(2)}` : "—"}
+          </span>
+          <span className={`text-[10px] font-medium ${isUp ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
+            {isUp ? "▲" : "▼"} {Math.abs(change24h).toFixed(2)}%
+          </span>
+        </div>
         {[
-          ["Mark Price", `$${fmt(price)}`],
-          ["24h Change", `${isUp ? "+" : ""}${change.toFixed(2)}%`, isUp ? "text-[#00e896]" : "text-[#ff2d55]"],
           ["24h Vol", "$2.48B"],
           ["Open Int", "$890M"],
-          ["Funding", "+0.0082%", "text-[#00e896]"],
-          ["Next Funding", fundingTimer, "text-[#f0c060]"],
-        ].map(([label, val, cls]) => (
-          <div key={label as string} className="flex flex-col gap-[1px] min-w-max">
-            <span className="text-[9px] uppercase tracking-[1.5px] text-[#3a5470]">{label}</span>
-            <span className={`text-[11px] font-medium ${cls || "text-[#c8daea]"}`}>{val}</span>
+          ["Funding", "+0.0082%"],
+          ["Next Funding", fundingTimer],
+          ["Mark", price ? `$${price >= 1000 ? price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : price.toFixed(2)}` : "—"],
+          ["Index", price ? `$${(price * 0.9998).toFixed(price >= 100 ? 0 : 2)}` : "—"],
+        ].map(([l, v]) => (
+          <div key={l as string} className="flex items-center gap-1.5 min-w-max">
+            <span className="text-[9px] text-[#2a3a50] uppercase tracking-wide">{l}</span>
+            <span className={`text-[10px] ${l === "Next Funding" ? "text-[#f0c060]" : l === "Funding" ? "text-[#00e896]" : "text-[#6e8faa]"}`}>{v}</span>
           </div>
         ))}
-        <div className="ml-auto flex flex-col gap-[1px] min-w-max">
-          <span className="text-[9px] uppercase tracking-[1.5px] text-[#3a5470]">Liq. Threshold</span>
-          <span className="text-[10px] text-[#7b61ff]">🔒 Arcium Encrypted</span>
+        <div className="ml-auto flex items-center gap-1 min-w-max">
+          <span className="text-[9px] text-[#2a3a50] uppercase tracking-wide">Liq. Price</span>
+          <span className="text-[9px] text-[#7b61ff]">🔒 Arcium MPC</span>
         </div>
       </div>
 
-      {/* ── MAIN ── */}
+      {/* ── MAIN LAYOUT ── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* ── CHART / PRICE AREA ── */}
-        <div className="flex-1 border-r border-[#1a2535] flex flex-col overflow-hidden">
-          <div className="h-9 bg-[#080c12] border-b border-[#1a2535] flex items-center px-3.5 gap-0.5 flex-shrink-0">
-            {["1m","5m","15m","1H","4H","1D"].map((tf, i) => (
-              <button key={tf} className={`px-2.5 py-1 rounded border-none text-[11px] cursor-pointer transition-all ${i === 3 ? "text-[#7b61ff] bg-[rgba(123,97,255,0.1)]" : "text-[#3a5470] bg-none hover:text-[#6e8faa]"}`}>
+        {/* ── LEFT: CHART + POSITIONS ── */}
+        <div className="flex-1 flex flex-col overflow-hidden border-r border-[#0f1923]">
+
+          {/* Timeframe bar */}
+          <div className="h-8 bg-[#06090f] border-b border-[#0f1923] flex items-center px-3 gap-0.5 flex-shrink-0">
+            {["15m","1H","4H","1D","1W"].map((tf, i) => (
+              <button key={tf}
+                className={`px-2.5 py-1 rounded text-[10px] transition-all border-none cursor-pointer ${
+                  i === 1 ? "text-[#7b61ff] bg-[rgba(123,97,255,0.12)]" : "text-[#2a3a50] hover:text-[#6e8faa]"
+                }`}>
                 {tf}
               </button>
             ))}
-            <div className="w-px h-3.5 bg-[#1a2535] mx-2" />
-            <span className="ml-auto text-[9px] text-[#3a5470] tracking-wide flex items-center gap-1.5">
-              <span className="text-[#7b61ff]">⚡ Arcium MPC</span> — positions encrypted · only PnL revealed on close
-            </span>
+            <div className="w-px h-3 bg-[#0f1923] mx-2" />
+            {["Candles","Line","Area"].map((t, i) => (
+              <button key={t}
+                className={`px-2 py-1 rounded text-[9px] transition-all border-none cursor-pointer ${
+                  i === 0 ? "text-[#6e8faa]" : "text-[#1a2535] hover:text-[#2a3a50]"
+                }`}>
+                {t}
+              </button>
+            ))}
+            <div className="ml-auto flex items-center gap-1.5 text-[9px] text-[#1a2535]">
+              <span className="text-[#7b61ff] opacity-60">⚡ Arcium MPC</span>
+              <span>· liquidation checks run on encrypted data</span>
+            </div>
           </div>
 
-          {/* Price display */}
-          <div className="flex-1 flex flex-col items-start justify-center p-6 relative bg-[#04060a]">
-            <div className="absolute inset-0 bg-gradient-to-br from-[rgba(123,97,255,0.03)] to-transparent pointer-events-none" />
-            <div className={`text-6xl font-bold tracking-tight ${isUp ? "text-[#00e896]" : "text-[#ff2d55]"}`} style={{textShadow: isUp ? "0 0 40px rgba(0,232,150,0.3)" : "0 0 40px rgba(255,45,85,0.3)"}}>
-              ${fmt(price)}
+          {/* Chart */}
+          <div className="flex-1 relative bg-[#020508] overflow-hidden">
+            {loadingChart ? (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-6 h-6 border-2 border-[#7b61ff] border-t-transparent rounded-full animate-spin" />
+                  <span className="text-[10px] text-[#2a3a50]">Loading {MARKETS[market].label} price data...</span>
+                </div>
+              </div>
+            ) : (
+              <div className="absolute inset-0 p-2">
+                <CandleChart candles={candles} color={mktConf.color} />
+              </div>
+            )}
+
+            {/* Price overlay */}
+            <div className="absolute top-4 left-6 pointer-events-none">
+              <div className={`text-[40px] font-bold tabular-nums leading-none ${isUp ? "text-[#00e896]" : "text-[#ff2d55]"}`}
+                style={{ textShadow: isUp ? "0 0 60px rgba(0,232,150,0.2)" : "0 0 60px rgba(255,45,85,0.2)" }}>
+                {price ? (price >= 1000
+                  ? `$${price.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                  : `$${price.toFixed(2)}`) : "—"}
+              </div>
+              <div className={`text-[12px] mt-0.5 font-medium ${isUp ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
+                {isUp ? "▲" : "▼"} {Math.abs(change24h).toFixed(2)}% (24H)
+              </div>
             </div>
-            <div className={`text-sm mt-1.5 tracking-wide ${isUp ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
-              {isUp ? "▲" : "▼"} {isUp ? "+" : ""}{(price - open24h[market]).toFixed(2)} ({isUp ? "+" : ""}{change.toFixed(2)}%) 24H
-            </div>
-            <div className="mt-6 text-[10px] text-[#3a5470] space-y-1">
-              <div>Program: <span className="text-[#7b61ff]">{PROGRAM_ID.toString()}</span></div>
-              <div>MXE Cluster: <span className="text-[#7b61ff]">offset 456 · devnet</span></div>
-              <div>Circuits: <span className="text-[#00ffd1]">open_position · check_liquidation · compute_pnl</span></div>
-              <div>SDK: <span className="text-[#00ffd1]">@arcium-hq/client · X25519 ECDH + RescueCipher</span></div>
-            </div>
+
+            {/* Status overlay */}
             {status && (
-              <div className="mt-4 px-4 py-2 bg-[rgba(123,97,255,0.1)] border border-[rgba(123,97,255,0.3)] rounded text-[11px] text-[#c4b5fd] max-w-lg">
-                {status}
+              <div className="absolute bottom-4 left-4 right-4 flex justify-center pointer-events-none">
+                <div className="px-4 py-2 bg-[rgba(7,11,18,0.95)] border border-[rgba(123,97,255,0.3)] rounded text-[11px] text-[#c4b5fd] backdrop-blur-sm">
+                  {status}
+                </div>
               </div>
             )}
-            {!wallet.publicKey && (
-              <div className="mt-4 px-4 py-3 bg-[rgba(123,97,255,0.08)] border border-[rgba(123,97,255,0.2)] rounded text-[11px] text-[#a89fff] max-w-lg">
-                👋 Connect your wallet to start trading. You'll receive <span className="text-[#00e896] font-semibold">10,000 mock USDC</span> to test with.
-              </div>
-            )}
-            <div className="absolute bottom-5 right-5 text-[80px] font-bold text-white opacity-[0.02] tracking-widest pointer-events-none">
-              PrivatePerps
-            </div>
           </div>
 
           {/* ── POSITIONS TABLE ── */}
-          <div className="border-t border-[#1a2535] bg-[#080c12] flex flex-col" style={{height: "190px"}}>
-            <div className="h-9 border-b border-[#1a2535] flex items-center px-4 gap-5 flex-shrink-0">
-              <span className="text-[11px] font-medium text-[#c8daea] border-b border-[#00ffd1] pb-0.5">
-                Positions
-                <span className="ml-1.5 text-[9px] px-1.5 py-0.5 bg-[rgba(0,255,209,0.08)] text-[#00ffd1] border border-[rgba(0,255,209,0.2)] rounded-full">
-                  {positions.length}
+          <div className="border-t border-[#0f1923] bg-[#06090f]" style={{ height: "200px" }}>
+            {/* Tab bar */}
+            <div className="h-8 border-b border-[#0f1923] flex items-center px-3 gap-4 flex-shrink-0">
+              {["positions","orders"].map((tab) => (
+                <button key={tab} onClick={() => setActiveTab(tab as any)}
+                  className={`text-[10px] font-medium tracking-wide uppercase pb-0.5 transition-all border-b ${
+                    activeTab === tab
+                      ? "text-[#c8daea] border-[#7b61ff]"
+                      : "text-[#2a3a50] border-transparent hover:text-[#6e8faa]"
+                  }`}>
+                  {tab === "positions"
+                    ? `Positions ${positions.length > 0 ? `(${positions.length})` : ""}`
+                    : "Open Orders (0)"}
+                </button>
+              ))}
+              {ghostCount > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 bg-[rgba(123,97,255,0.1)] text-[#7b61ff] border border-[rgba(123,97,255,0.2)] rounded-full">
+                  👻 {ghostCount} ghost
                 </span>
-              </span>
-              <span className="ml-auto text-[9px] text-[#3a5470] uppercase tracking-wide flex items-center gap-1.5">
-                <span className="text-[#7b61ff]">Arcium MPC</span> — private positions · only PnL revealed
-              </span>
+              )}
+              <div className="ml-auto text-[9px] text-[#1a2535] flex items-center gap-1">
+                <span className="text-[#7b61ff] opacity-50">Arcium MPC</span>
+                <span>· each position is a unique encrypted PDA</span>
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto">
+
+            <div className="overflow-y-auto" style={{ height: "160px" }}>
               {positions.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full gap-2 text-[#3a5470]">
-                  <span className="text-3xl opacity-40">🔐</span>
-                  <span className="text-[11px] tracking-wide">No open positions</span>
+                <div className="flex flex-col items-center justify-center h-full gap-1.5 text-[#1a2535]">
+                  <span className="text-2xl opacity-30">🔐</span>
+                  <span className="text-[10px]">No open positions</span>
                   <span className="text-[9px] opacity-60">
-                    {wallet.publicKey ? "Open a position using the panel on the right" : "Connect wallet to start trading"}
+                    {wallet.publicKey ? "Open a position using the panel →" : "Connect wallet to trade"}
                   </span>
                 </div>
               ) : (
                 <table className="w-full border-collapse">
                   <thead>
-                    <tr>
-                      {["Market","Side","Margin","Leverage","Notional","Entry","Mark","Liq. Price","PnL","Action"].map(h => (
-                        <th key={h} className="text-left px-3.5 py-1.5 text-[9px] uppercase tracking-[1.5px] text-[#3a5470] font-medium border-b border-[#1a2535] bg-[#080c12] whitespace-nowrap sticky top-0">
+                    <tr className="border-b border-[#0a1018]">
+                      {["Market","Side","Size","Leverage","Notional","Entry","Mark","Liq","Unrealized PnL",""].map((h) => (
+                        <th key={h} className="text-left px-3 py-1.5 text-[8px] uppercase tracking-[1.5px] text-[#1a2535] font-medium whitespace-nowrap bg-[#06090f] sticky top-0">
                           {h}
                         </th>
                       ))}
@@ -476,36 +592,44 @@ export default function TradingPage() {
                   <tbody>
                     {positions.map((pos) => {
                       const { pnl, pct, cur } = calcPnL(pos);
-                      const isPos = pnl >= 0;
+                      const isPos = (pnl ?? 0) >= 0;
+                      const G = ({ v }: { v: React.ReactNode }) =>
+                        pos.ghost ? <span className="text-[#1a2535]">—</span> : <>{v}</>;
                       return (
-                        <tr key={pos.id} className="hover:bg-[rgba(255,255,255,0.015)] transition-colors">
-                          <td className="px-3.5 py-2.5 font-bold text-xs whitespace-nowrap">
-                            {pos.pair}
-                            {pos.ghost && <span className="ml-1.5 text-[9px] px-1.5 py-0.5 bg-[rgba(123,97,255,0.1)] text-[#c4b5fd] border border-[rgba(123,97,255,0.2)] rounded">👻</span>}
+                        <tr key={pos.id}
+                          className={`border-b border-[#080e15] transition-colors ${
+                            pos.ghost ? "bg-[rgba(123,97,255,0.02)] hover:bg-[rgba(123,97,255,0.04)]"
+                            : "hover:bg-[rgba(255,255,255,0.01)]"
+                          }`}>
+                          <td className="px-3 py-2 font-bold text-[10px]">
+                            {pos.ghost
+                              ? <span className="text-[9px] px-1.5 py-0.5 bg-[rgba(123,97,255,0.12)] text-[#7b61ff] border border-[rgba(123,97,255,0.25)] rounded">👻 GHOST</span>
+                              : <span style={{ color: MARKETS[pos.pair]?.color }}>{pos.pair.split("/")[0]}</span>}
                           </td>
-                          <td className={`px-3.5 py-2.5 font-bold text-[10px] tracking-wide ${pos.side === "long" ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
-                            {pos.side.toUpperCase()}
+                          <td className={`px-3 py-2 font-bold text-[10px] ${pos.ghost ? "text-[#1a2535]" : pos.side === "long" ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
+                            <G v={pos.side.toUpperCase()} />
                           </td>
-                          <td className="px-3.5 py-2.5 text-[#6e8faa]">${pos.size.toLocaleString()}</td>
-                          <td className="px-3.5 py-2.5 text-[#6e8faa]">{pos.leverage}×</td>
-                          <td className="px-3.5 py-2.5 text-[#6e8faa]">${(pos.size * pos.leverage).toLocaleString()}</td>
-                          <td className="px-3.5 py-2.5 text-[#6e8faa]">${fmt(pos.entry)}</td>
-                          <td className="px-3.5 py-2.5">${fmt(cur)}</td>
-                          <td className="px-3.5 py-2.5">
-                            <span className="text-[9px] px-1.5 py-0.5 bg-[rgba(123,97,255,0.1)] text-[#a89fff] border border-[rgba(123,97,255,0.2)] rounded">
-                              🔒 Arcium
-                            </span>
+                          <td className="px-3 py-2 text-[10px] text-[#6e8faa]"><G v={`$${pos.size.toLocaleString()}`} /></td>
+                          <td className="px-3 py-2 text-[10px] text-[#6e8faa]"><G v={`${pos.leverage}×`} /></td>
+                          <td className="px-3 py-2 text-[10px] text-[#6e8faa]"><G v={`$${(pos.size * pos.leverage).toLocaleString()}`} /></td>
+                          <td className="px-3 py-2 text-[10px] text-[#6e8faa]"><G v={fmt(pos.entry)} /></td>
+                          <td className="px-3 py-2 text-[10px]"><G v={fmt(cur ?? 0)} /></td>
+                          <td className="px-3 py-2">
+                            <span className="text-[8px] px-1 py-0.5 bg-[rgba(123,97,255,0.08)] text-[#7b61ff] border border-[rgba(123,97,255,0.15)] rounded">🔒 MPC</span>
                           </td>
-                          <td className={`px-3.5 py-2.5 font-bold whitespace-nowrap ${isPos ? "text-[#00e896]" : "text-[#ff2d55]"}`}>
-                            {isPos ? "+" : ""}${pnl.toFixed(2)}
-                            <span className="ml-1 text-[10px] font-normal opacity-70">({isPos ? "+" : ""}{pct.toFixed(2)}%)</span>
+                          <td className="px-3 py-2 font-bold text-[10px]">
+                            {pos.ghost ? (
+                              <span className="text-[8px] px-1.5 py-0.5 bg-[rgba(123,97,255,0.08)] text-[#5b45cc] border border-[rgba(123,97,255,0.15)] rounded">👻 Hidden</span>
+                            ) : (
+                              <span className={isPos ? "text-[#00e896]" : "text-[#ff2d55]"}>
+                                {isPos ? "+" : ""}${(pnl ?? 0).toFixed(2)}
+                                <span className="ml-1 text-[9px] opacity-60">({isPos ? "+" : ""}{(pct ?? 0).toFixed(2)}%)</span>
+                              </span>
+                            )}
                           </td>
-                          <td className="px-3.5 py-2.5">
-                            <button
-                              onClick={() => handleClosePosition(pos)}
-                              disabled={loading}
-                              className="px-2.5 py-1 border border-[#1f2e42] bg-transparent text-[#6e8faa] text-[9px] tracking-wide uppercase rounded transition-all hover:border-[#ff2d55] hover:text-[#ff2d55] hover:bg-[rgba(255,45,85,0.1)] disabled:opacity-30"
-                            >
+                          <td className="px-3 py-2">
+                            <button onClick={() => handleClosePosition(pos)} disabled={loading}
+                              className="px-2 py-0.5 border border-[#1a2535] text-[#3a5470] text-[9px] rounded hover:border-[#ff2d55] hover:text-[#ff2d55] hover:bg-[rgba(255,45,85,0.08)] transition-all disabled:opacity-30">
                               Close
                             </button>
                           </td>
@@ -519,59 +643,64 @@ export default function TradingPage() {
           </div>
         </div>
 
-        {/* ── TRADE PANEL ── */}
-        <div className="w-72 bg-[#080c12] border-l border-[#1a2535] overflow-y-auto flex flex-col flex-shrink-0">
+        {/* ── RIGHT: TRADE PANEL ── */}
+        <div className="w-[264px] bg-[#06090f] flex flex-col flex-shrink-0 overflow-y-auto">
 
           {/* Long / Short */}
-          <div className="flex border-b border-[#1a2535] flex-shrink-0">
+          <div className="flex flex-shrink-0">
             {(["long","short"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setSide(s)}
-                className={`flex-1 py-3 text-[11px] font-semibold tracking-[1.5px] uppercase cursor-pointer border-b-2 transition-all ${
-                  side === s && s === "long" ? "text-[#00e896] border-[#00e896] bg-[rgba(0,232,150,0.08)]"
-                  : side === s && s === "short" ? "text-[#ff2d55] border-[#ff2d55] bg-[rgba(255,45,85,0.08)]"
-                  : "text-[#3a5470] border-transparent"
-                }`}
-              >
+              <button key={s} onClick={() => setSide(s)}
+                className={`flex-1 py-2.5 text-[11px] font-bold tracking-[2px] uppercase transition-all border-b-2 ${
+                  side === s && s === "long"  ? "text-[#00e896] border-[#00e896] bg-[rgba(0,232,150,0.06)]"
+                  : side === s && s === "short" ? "text-[#ff2d55] border-[#ff2d55] bg-[rgba(255,45,85,0.06)]"
+                  : "text-[#2a3a50] border-[#0f1923] hover:text-[#6e8faa]"
+                }`}>
                 {s === "long" ? "▲ Long" : "▼ Short"}
               </button>
             ))}
           </div>
 
-          <div className="p-3.5 flex flex-col gap-3">
+          <div className="p-3 flex flex-col gap-2.5">
 
-            {/* Mock balance display in panel */}
+            {/* Balance */}
             {mockBalance !== null && (
-              <div className="flex items-center justify-between px-3 py-2 bg-[#0d1219] border border-[#1a2535] rounded">
-                <span className="text-[9px] uppercase tracking-[1.5px] text-[#3a5470]">Available</span>
-                <span className="text-[11px] text-[#00e896] font-semibold">
-                  ${mockBalance.toLocaleString(undefined, {maximumFractionDigits: 2})} USDC
+              <div className="flex items-center justify-between px-2.5 py-1.5 bg-[#0a1018] border border-[#0f1923] rounded">
+                <span className="text-[8px] uppercase tracking-[1.5px] text-[#2a3a50]">Available Balance</span>
+                <span className="text-[11px] text-[#00e896] font-bold tabular-nums">
+                  ${mockBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} USDC
                 </span>
               </div>
             )}
 
+            {/* Order type */}
+            <div className="flex bg-[#0a1018] rounded overflow-hidden border border-[#0f1923]">
+              {["Market","Limit","Stop"].map((t, i) => (
+                <button key={t}
+                  className={`flex-1 py-1.5 text-[9px] font-medium tracking-wide transition-all ${
+                    i === 0 ? "bg-[#111820] text-[#c8daea]" : "text-[#2a3a50] hover:text-[#6e8faa]"
+                  }`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+
             {/* Size */}
             <div>
-              <div className="text-[9px] uppercase tracking-[2px] text-[#3a5470] mb-1.5">Size (USD)</div>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={size}
-                  min={10}
-                  onChange={(e) => setSize(Number(e.target.value))}
-                  className="w-full bg-[#111820] border border-[#1a2535] text-[#c8daea] font-mono text-[13px] px-3.5 py-2.5 rounded outline-none focus:border-[#7b61ff] transition-colors pr-12"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#3a5470] tracking-wide pointer-events-none">USD</span>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[8px] uppercase tracking-[2px] text-[#2a3a50]">Size</span>
+                <span className="text-[8px] text-[#2a3a50]">Max: ${mockBalance?.toLocaleString() ?? "—"}</span>
               </div>
-              <div className="grid grid-cols-4 gap-[3px] mt-1">
-                {[25,50,75,100].map((pct) => (
-                  <button
-                    key={pct}
-                    onClick={() => setSize(Math.floor((mockBalance ?? 10000) * pct / 100))}
-                    className="py-1.5 border border-[#1a2535] bg-[#111820] text-[#3a5470] text-[10px] rounded cursor-pointer hover:border-[#1f2e42] hover:text-[#6e8faa] transition-all"
-                  >
-                    {pct === 100 ? "Max" : `${pct}%`}
+              <div className="relative">
+                <input type="number" value={size} min={10}
+                  onChange={(e) => setSize(Number(e.target.value))}
+                  className="w-full bg-[#0a1018] border border-[#0f1923] text-[#c8daea] font-mono text-[12px] px-3 py-2 rounded outline-none focus:border-[#7b61ff] transition-colors pr-14" />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-[#2a3a50]">USD</span>
+              </div>
+              <div className="grid grid-cols-4 gap-1 mt-1.5">
+                {[25,50,75,100].map((p) => (
+                  <button key={p} onClick={() => setSize(Math.floor((mockBalance ?? 10000) * p / 100))}
+                    className="py-1 border border-[#0f1923] bg-[#0a1018] text-[#2a3a50] text-[9px] rounded hover:border-[#1a2535] hover:text-[#6e8faa] transition-all">
+                    {p === 100 ? "Max" : `${p}%`}
                   </button>
                 ))}
               </div>
@@ -579,19 +708,19 @@ export default function TradingPage() {
 
             {/* Leverage */}
             <div>
-              <div className="text-[9px] uppercase tracking-[2px] text-[#3a5470] mb-1.5">
-                Leverage — <span className="text-[#7b61ff]">{leverage}×</span>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[8px] uppercase tracking-[2px] text-[#2a3a50]">Leverage</span>
+                <span className="text-[10px] text-[#7b61ff] font-bold">{leverage}×</span>
               </div>
               <input type="range" min={1} max={50} value={leverage}
                 onChange={(e) => setLeverage(Number(e.target.value))}
-                className="w-full accent-[#7b61ff] cursor-pointer" />
-              <div className="grid grid-cols-5 gap-[3px] mt-1.5">
+                className="w-full accent-[#7b61ff]" />
+              <div className="grid grid-cols-5 gap-1 mt-1.5">
                 {[2,5,10,20,50].map((l) => (
                   <button key={l} onClick={() => setLeverage(l)}
-                    className={`py-1.5 border rounded text-[10px] font-semibold cursor-pointer transition-all ${
-                      leverage === l
-                        ? "bg-[rgba(123,97,255,0.1)] border-[rgba(123,97,255,0.3)] text-[#7b61ff]"
-                        : "border-[#1a2535] bg-[#111820] text-[#3a5470]"
+                    className={`py-1 border rounded text-[9px] font-semibold transition-all ${
+                      leverage === l ? "bg-[rgba(123,97,255,0.12)] border-[rgba(123,97,255,0.3)] text-[#7b61ff]"
+                      : "border-[#0f1923] bg-[#0a1018] text-[#2a3a50] hover:text-[#6e8faa]"
                     }`}>
                     {l}×
                   </button>
@@ -599,89 +728,89 @@ export default function TradingPage() {
               </div>
             </div>
 
-            {/* Arcium Privacy section */}
-            <div className="bg-[#0d1219] border border-[#1a2535] rounded p-3 flex flex-col gap-1.5">
-              <div className="text-[9px] uppercase tracking-[2px] text-[#7b61ff] flex items-center gap-1.5 mb-1">
+            {/* Arcium Privacy panel */}
+            <div className="bg-[#080d15] border border-[#0f1923] rounded p-2.5">
+              <div className="flex items-center gap-1.5 mb-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-[#7b61ff] animate-pulse" />
-                Arcium MPC Privacy
+                <span className="text-[8px] uppercase tracking-[2px] text-[#7b61ff]">Arcium MPC · Privacy Layer</span>
               </div>
               {[
-                ["Position Size", "🔒 Encrypted"],
-                ["Entry Price", "🔒 Encrypted"],
-                ["Leverage", "🔒 Encrypted"],
-                ["Liq. Threshold", "🔒 Computed Privately"],
-                ["Final PnL", "✓ Revealed on close"],
+                ["Entry Price",    "🔒 Encrypted"],
+                ["Position Size",  "🔒 Encrypted"],
+                ["Leverage",       "🔒 Encrypted"],
+                ["Direction",      "🔒 Encrypted"],
+                ["Liq. Threshold", "🔒 MPC Computed"],
+                ["PnL",            ghost ? "👻 Hidden Forever" : "✓ On close"],
               ].map(([label, val]) => (
-                <div key={label} className="flex items-center justify-between text-[10px]">
-                  <span className="text-[#3a5470]">{label}</span>
-                  <span className={`text-[9px] px-1.5 py-0.5 border rounded ${
-                    val.includes("Revealed")
-                      ? "bg-transparent border-[#00e896] text-[#00e896]"
-                      : "bg-[rgba(123,97,255,0.1)] border-[rgba(123,97,255,0.2)] text-[#a89fff]"
+                <div key={label} className="flex items-center justify-between py-0.5">
+                  <span className="text-[9px] text-[#2a3a50]">{label}</span>
+                  <span className={`text-[8px] px-1.5 py-0.5 rounded border ${
+                    (val as string).includes("Hidden") ? "bg-[rgba(123,97,255,0.1)] border-[rgba(123,97,255,0.25)] text-[#9b7dff]"
+                    : (val as string).includes("✓") ? "bg-transparent border-[rgba(0,232,150,0.3)] text-[#00e896]"
+                    : "bg-[rgba(123,97,255,0.06)] border-[rgba(123,97,255,0.15)] text-[#6e8faa]"
                   }`}>{val}</span>
                 </div>
               ))}
             </div>
 
             {/* Ghost mode */}
-            <button
-              onClick={() => setGhost(!ghost)}
-              className={`flex items-center justify-between px-3 py-2.5 border rounded cursor-pointer transition-all ${
+            <button onClick={() => setGhost(!ghost)}
+              className={`flex items-center justify-between px-2.5 py-2 border rounded transition-all ${
                 ghost
-                  ? "bg-[rgba(123,97,255,0.1)] border-[rgba(123,97,255,0.35)] shadow-[0_0_20px_rgba(123,97,255,0.1)]"
-                  : "bg-[#0d1219] border-[#1a2535] hover:border-[#7b61ff]"
-              }`}
-            >
-              <div className="flex flex-col gap-[3px] text-left">
-                <div className={`text-[11px] font-medium flex items-center gap-1.5 ${ghost ? "text-[#c4b5fd]" : ""}`}>
+                  ? "bg-[rgba(123,97,255,0.08)] border-[rgba(123,97,255,0.3)] shadow-[0_0_16px_rgba(123,97,255,0.1)]"
+                  : "bg-[#080d15] border-[#0f1923] hover:border-[#1a2535]"
+              }`}>
+              <div>
+                <div className={`text-[10px] font-medium ${ghost ? "text-[#c4b5fd]" : "text-[#6e8faa]"}`}>
                   👻 Ghost Mode
                 </div>
-                <div className="text-[9px] text-[#3a5470] tracking-wide">Full Arcium MPC encryption</div>
+                <div className="text-[8px] text-[#2a3a50] mt-0.5">
+                  {ghost ? "Position fully dark — PnL hidden forever" : "Hide all position details on-chain"}
+                </div>
               </div>
-              <div className={`w-8 h-[17px] rounded-full relative transition-colors flex-shrink-0 ${ghost ? "bg-[#7b61ff]" : "bg-[#1f2e42]"}`}>
-                <div className={`absolute w-[11px] h-[11px] bg-white rounded-full top-[3px] transition-transform ${ghost ? "translate-x-[17px]" : "translate-x-[3px]"}`} />
+              <div className={`w-7 h-[14px] rounded-full relative transition-colors flex-shrink-0 ml-2 ${ghost ? "bg-[#7b61ff]" : "bg-[#1a2535]"}`}>
+                <div className={`absolute w-[10px] h-[10px] bg-white rounded-full top-[2px] transition-transform ${ghost ? "translate-x-[15px]" : "translate-x-[2px]"}`} />
               </div>
             </button>
 
             {/* Order summary */}
-            <div className="bg-[#0d1219] border border-[#1a2535] rounded p-3 flex flex-col gap-1.5">
+            <div className="bg-[#080d15] border border-[#0f1923] rounded p-2.5 space-y-1.5">
               {[
-                ["Entry", "Market"],
-                ["Notional", `$${notional.toLocaleString()}`],
-                ["Margin", `$${size.toLocaleString()}`],
-                ["Fees (0.01%)", `$${(notional * 0.0001).toFixed(2)}`],
+                ["Entry",           "Market"],
+                ["Notional",        `$${notional.toLocaleString()}`],
+                ["Margin",          `$${size.toLocaleString()}`],
+                ["Est. Fee (0.01%)",`$${(notional * 0.0001).toFixed(2)}`],
+                ["Liq. Price",      null],
               ].map(([label, val]) => (
-                <div key={label} className="flex justify-between text-[10px] text-[#3a5470]">
-                  <span>{label}</span>
-                  <span className="text-[#6e8faa]">{val}</span>
+                <div key={label as string} className="flex justify-between items-center">
+                  <span className="text-[9px] text-[#2a3a50]">{label}</span>
+                  {val ? (
+                    <span className="text-[9px] text-[#6e8faa]">{val}</span>
+                  ) : (
+                    <span className="text-[8px] text-[#7b61ff]">🔒 Arcium MPC</span>
+                  )}
                 </div>
               ))}
-              <div className="flex justify-between text-[10px] text-[#3a5470]">
-                <span>Liq. Price</span>
-                <span className="text-[9px] text-[#a89fff]">🔒 Arcium Encrypted</span>
-              </div>
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleOpenPosition}
-              disabled={loading}
-              className={`w-full py-3.5 border-none rounded font-mono text-xs font-bold tracking-[2px] uppercase cursor-pointer transition-all disabled:opacity-30 disabled:cursor-not-allowed relative overflow-hidden ${
-                side === "long"
-                  ? "bg-gradient-to-r from-[#006644] to-[#00e896] text-white hover:shadow-[0_0_24px_rgba(0,232,150,0.35)] hover:-translate-y-px"
-                  : "bg-gradient-to-r from-[#660020] to-[#ff2d55] text-white hover:shadow-[0_0_24px_rgba(255,45,85,0.35)] hover:-translate-y-px"
-              }`}
-            >
-              {loading
-                ? (status.slice(0, 28) + "...")
-                : wallet.publicKey
-                  ? `${side === "long" ? "▲ Long" : "▼ Short"} ${market}`
-                  : "Connect Wallet to Trade"
-              }
+            <button onClick={handleOpenPosition} disabled={loading}
+              className={`w-full py-3 border-none rounded font-mono text-[11px] font-bold tracking-[2px] uppercase transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                ghost
+                  ? "bg-gradient-to-r from-[#1e0054] to-[#7b61ff] text-white hover:shadow-[0_0_24px_rgba(123,97,255,0.4)] hover:-translate-y-px"
+                  : side === "long"
+                    ? "bg-gradient-to-r from-[#004d33] to-[#00e896] text-black font-black hover:shadow-[0_0_24px_rgba(0,232,150,0.3)] hover:-translate-y-px"
+                    : "bg-gradient-to-r from-[#4d0016] to-[#ff2d55] text-white hover:shadow-[0_0_24px_rgba(255,45,85,0.3)] hover:-translate-y-px"
+              }`}>
+              {loading ? (status.slice(0, 26) + "...") : !wallet.publicKey ? "Connect Wallet"
+                : ghost ? `👻 Ghost ${side === "long" ? "Long" : "Short"}`
+                : `${side === "long" ? "▲ Long" : "▼ Short"} ${MARKETS[market].label}`}
             </button>
 
-            <div className="text-center text-[9px] text-[#3a5470] tracking-wide flex items-center justify-center gap-1">
-              Secured by <span className="text-[#a89fff]">Arcium</span> on Solana Devnet
+            <div className="text-center text-[8px] text-[#1a2535] flex items-center justify-center gap-1.5">
+              <span className="text-[#7b61ff] opacity-40">Arcium MPC</span>
+              <span>· Solana Devnet</span>
+              {positions.length > 0 && <span>· {positions.length} open</span>}
             </div>
           </div>
         </div>
@@ -689,10 +818,10 @@ export default function TradingPage() {
 
       {/* ── TOAST ── */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 px-4 py-3 rounded text-[11px] z-50 max-w-sm border backdrop-blur-xl whitespace-pre-line leading-relaxed transition-all ${
-          toast.type === "ok" ? "bg-[rgba(0,232,150,0.08)] border-[#00e896] text-[#00e896]"
-          : toast.type === "err" ? "bg-[rgba(255,45,85,0.08)] border-[#ff2d55] text-[#ff2d55]"
-          : "bg-[rgba(123,97,255,0.1)] border-[rgba(123,97,255,0.4)] text-[#c4b5fd]"
+        <div className={`fixed bottom-5 right-5 px-4 py-3 rounded-lg text-[11px] z-50 max-w-xs border backdrop-blur-xl whitespace-pre-line leading-relaxed shadow-2xl transition-all ${
+          toast.type === "ok"     ? "bg-[rgba(0,232,150,0.06)] border-[rgba(0,232,150,0.25)] text-[#00e896]"
+          : toast.type === "err"   ? "bg-[rgba(255,45,85,0.06)] border-[rgba(255,45,85,0.25)] text-[#ff2d55]"
+          : "bg-[rgba(123,97,255,0.08)] border-[rgba(123,97,255,0.3)] text-[#c4b5fd]"
         }`}>
           {toast.msg}
         </div>
