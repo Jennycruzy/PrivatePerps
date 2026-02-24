@@ -72,13 +72,13 @@ export default function TradingPage() {
     providerRef.current = provider;
     anchor.setProvider(provider);
 
-   try {
-  // Anchor 0.32 IDL has address field — pass only IDL and provider
-  programRef.current = new anchor.Program(IDL as any, provider);
-  console.log("✅ Program loaded:", PROGRAM_ID.toString());
-} catch (e) {
-  console.error("Program load error:", e);
-}
+    try {
+      // Use real compiled IDL from target/idl/private_perps.json
+      programRef.current = new anchor.Program(IDL as any, PROGRAM_ID, provider);
+      console.log("✅ Program loaded:", PROGRAM_ID.toString());
+    } catch (e) {
+      console.error("Program load error:", e);
+    }
 
     // Give user 10,000 mock USDC on connect for testing
     if (mockBalance === null) {
