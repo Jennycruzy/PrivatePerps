@@ -326,16 +326,16 @@ export default function TradingPage() {
         programRef.current, wallet.publicKey,
         pos.encrypted.positionId, currentPrice, pos.ghost
       );
-      const pnl = pos.ghost ? null : estimatePnL(pos, currentPrice);
-      const ret = pos.ghost ? pos.size : pos.size + (pnl ?? 0);
+      const pnl = estimatePnL(pos, currentPrice); // always calculate, ghost or not
+      const ret = pos.size + pnl;
       setPositions(prev => prev.filter(p => p.id !== pos.id));
       setMockBalance(prev => (prev ?? 0) + ret);
       setStatus("");
       showToast(
         pos.ghost
-          ? `👻 Ghost closed\nMargin returned: $${pos.size.toLocaleString()}\nPnL: 🔒 Hidden forever\nTx: ${signature.slice(0,20)}...`
-          : `Closed ✓  PnL: ${(pnl ?? 0) >= 0 ? "+" : ""}$${(pnl ?? 0).toFixed(2)}\nTx: ${signature.slice(0,20)}...`,
-        pos.ghost ? "arcium" : (pnl ?? 0) >= 0 ? "ok" : "err"
+          ? `👻 Ghost closed\nPnL: ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}\nTx: ${signature.slice(0,20)}...`
+          : `Closed ✓  PnL: ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}\nTx: ${signature.slice(0,20)}...`,
+        pnl >= 0 ? "ok" : "err"
       );
     } catch (err: any) {
       setStatus("");
@@ -349,7 +349,7 @@ export default function TradingPage() {
   }
 
   function calcPnL(pos: Position) {
-    if (pos.ghost) return { pnl: null, pct: null, cur: null };
+    // Always calculate PnL — ghost positions show PnL to trader but hide everything else
     const cur = prices[pos.pair];
     const pnl = estimatePnL(pos, cur);
     return { pnl, pct: (pnl / pos.size) * 100, cur };
@@ -614,15 +614,12 @@ export default function TradingPage() {
                             </span>
                           </td>
                           <td className="px-3 py-2 font-bold text-[10px]">
-                            {pos.ghost ? (
-                              <span className="text-[8px] px-1.5 py-0.5 bg-[rgba(123,97,255,0.06)] text-[#5b45cc] border border-[rgba(123,97,255,0.15)] rounded">
-                                👻 Hidden forever
-                              </span>
-                            ) : (
-                              <span className={isPos ? "text-[#00e896]" : "text-[#ff2d55]"}>
-                                {isPos ? "+" : ""}${(pnl ?? 0).toFixed(2)}
-                                <span className="ml-1 text-[9px] opacity-60">({isPos ? "+" : ""}{(pct ?? 0).toFixed(2)}%)</span>
-                              </span>
+                            <span className={isPos ? "text-[#00e896]" : "text-[#ff2d55]"}>
+                              {isPos ? "+" : ""}${(pnl ?? 0).toFixed(2)}
+                              <span className="ml-1 text-[9px] opacity-60">({isPos ? "+" : ""}{(pct ?? 0).toFixed(2)}%)</span>
+                            </span>
+                            {pos.ghost && (
+                              <span className="ml-1.5 text-[8px] text-[#7b61ff] opacity-70" title="Only visible to you">👻</span>
                             )}
                           </td>
                           <td className="px-3 py-2">
@@ -734,7 +731,7 @@ export default function TradingPage() {
                 ["Leverage",       "🔒 Encrypted"],
                 ["Direction",      ghost ? "👻 Hidden Forever" : "🔒 Encrypted"],
                 ["Liq. Threshold", "🔒 MPC Computed"],
-                ["PnL",            ghost ? "👻 Hidden Forever" : "✓ Revealed on close"],
+                ["PnL",            ghost ? "✓ Visible to you only" : "✓ Revealed on close"],
               ].map(([label, val]) => (
                 <div key={label} className="flex items-center justify-between py-[3px]">
                   <span className="text-[9px] text-[#2a3a50]">{label}</span>
@@ -759,7 +756,7 @@ export default function TradingPage() {
                   👻 Ghost Mode
                 </div>
                 <div className="text-[8px] text-[#2a3a50] mt-0.5">
-                  {ghost ? "PnL hidden forever · position fully dark" : "Hide all position details on-chain"}
+                  {ghost ? "Size & entry hidden · PnL visible to you only" : "Hide size, entry & details on-chain"}
                 </div>
               </div>
               <div className={`w-7 h-[14px] rounded-full relative transition-colors flex-shrink-0 ml-2 ${ghost ? "bg-[#7b61ff]" : "bg-[#1a2535]"}`}>
