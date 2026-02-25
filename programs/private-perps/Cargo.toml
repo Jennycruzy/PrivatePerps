@@ -21,6 +21,8 @@ default = []
 anchor-lang = "0.32.1"
 arcium-macros = "0.1.0"
 constant_time_eq = "0.3.0"
+arcium-client = "0.1.0"
 
-
+[patch.crates-io]
+time = { version = "0.3.36" }
 
