@@ -1,17 +1,21 @@
 use anchor_lang::prelude::*;
+use arcium_anchor::{
+    init_comp_def, queue_computation, ComputationOutputs,
+    derive_comp_def_pda, derive_mxe_pda, derive_mempool_pda,
+    derive_execpool_pda, derive_cluster_pda, derive_comp_pda,
+    ARCIUM_STAKING_POOL_ACCOUNT_ADDRESS, ARCIUM_CLOCK_ACCOUNT_ADDRESS,
+    MXE_PDA_SEED, MEMPOOL_PDA_SEED, EXECPOOL_PDA_SEED,
+    COMP_PDA_SEED, COMP_DEF_PDA_SEED, CLUSTER_PDA_SEED,
+};
+use arcium_client::idl::arcium::ID_CONST as ARCIUM_PROG_ID;
 use arcium_client::idl::arcium::{
-    types::{Argument, CircuitSource, OffChainCircuitSource},
     program::Arcium,
     accounts::{
-        PersistentMXEAccount, Mempool, ExecutingPool,
-        ComputationDefinitionAccount, Cluster, StakingPoolAccount, ClockAccount,
+        PersistentMXEAccount,
+        ComputationDefinitionAccount, Cluster, StakingPoolAccount,
+        ClockAccount,
     },
-    ARCIUM_STAKING_POOL_ACCOUNT_ADDRESS, ARCIUM_CLOCK_ACCOUNT_ADDRESS,
-};
-use arcium_client::{
-    init_comp_def, queue_computation,
-    derive_comp_def_pda, derive_mxe_pda, derive_mempool_pda,
-    derive_execpool_pda, derive_cluster_pda,
+    types::{Argument, OffChainCircuitSource},
 };
 use arcium_macros::{
     arcium_program, arcium_callback,
@@ -20,15 +24,14 @@ use arcium_macros::{
     callback_accounts,
 };
 
-declare_id!("By8ZwAFK26UhgwkVQXP3KE6miD4mgEz6eQ7QTS3X8FHv);
+declare_id!("By8ZwAFK26UhgwkVQXP3KE6miD4mgEz6eQ7QTS3X8FHv");
 
-// ── Computation definition offsets ────────────────────────────────────────────
-// These must be unique u32 values per circuit in this program
-const OPEN_POSITION_COMP_DEF_OFFSET:     u32 = 100;
-const CHECK_LIQUIDATION_COMP_DEF_OFFSET: u32 = 200;
-const COMPUTE_PNL_COMP_DEF_OFFSET:       u32 = 300;
+// ── Comp def offsets: u32::from_le_bytes(SHA256(name)[0..4]) ─────────────────
+const OPEN_POSITION_COMP_DEF_OFFSET:     u32 = 3935201159;
+const CHECK_LIQUIDATION_COMP_DEF_OFFSET: u32 = 2996691951;
+const COMPUTE_PNL_COMP_DEF_OFFSET:       u32 = 4043984865;
 
-// ── Supabase offchain circuit URLs ────────────────────────────────────────────
+// ── Supabase circuit URLs ─────────────────────────────────────────────────────
 const OPEN_POSITION_URL: &str =
     "https://qzkycebbcgieazeveteb.supabase.co/storage/v1/object/public/Circuits/open_position.arcis";
 const CHECK_LIQUIDATION_URL: &str =
@@ -41,7 +44,8 @@ pub mod private_perps {
     use super::*;
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ONE-TIME SETUP — run once after deploy via initCompDefs.ts
+    // ONE-TIME SETUP
+    // init_comp_def(accs, finalize_during_callback, offchain_source, finalize_authority)
     // ══════════════════════════════════════════════════════════════════════════
 
     pub fn init_open_position_comp_def(
@@ -49,11 +53,12 @@ pub mod private_perps {
     ) -> Result<()> {
         init_comp_def(
             ctx.accounts,
-            Some(CircuitSource::OffChain(OffChainCircuitSource {
+            false,
+            Some(OffChainCircuitSource {
                 source: OPEN_POSITION_URL.to_string(),
-                hash:   [238,229,76,89,122,94,117,95,108,229,113,221,228,34,34,34,
-                         61,137,57,249,244,244,160,106,158,87,211,116,115,83,57,235],
-            })),
+                hash: [238,229,76,89,122,94,117,95,108,229,113,221,228,34,34,34,
+                       61,137,57,249,244,244,160,106,158,87,211,116,115,83,57,235],
+            }),
             None,
         )?;
         Ok(())
@@ -64,11 +69,12 @@ pub mod private_perps {
     ) -> Result<()> {
         init_comp_def(
             ctx.accounts,
-            Some(CircuitSource::OffChain(OffChainCircuitSource {
+            false,
+            Some(OffChainCircuitSource {
                 source: CHECK_LIQUIDATION_URL.to_string(),
-                hash:   [211,123,192,1,177,252,222,216,193,229,204,156,178,208,213,142,
-                         245,222,16,14,0,190,234,146,119,13,149,159,141,237,43,87],
-            })),
+                hash: [211,123,192,1,177,252,222,216,193,229,204,156,178,208,213,142,
+                       245,222,16,14,0,190,234,146,119,13,149,159,141,237,43,87],
+            }),
             None,
         )?;
         Ok(())
@@ -79,11 +85,12 @@ pub mod private_perps {
     ) -> Result<()> {
         init_comp_def(
             ctx.accounts,
-            Some(CircuitSource::OffChain(OffChainCircuitSource {
+            false,
+            Some(OffChainCircuitSource {
                 source: COMPUTE_PNL_URL.to_string(),
-                hash:   [25,138,54,105,174,3,30,141,54,107,161,165,110,12,95,44,
-                         140,182,173,193,94,96,155,195,54,155,26,15,175,29,56,132],
-            })),
+                hash: [25,138,54,105,174,3,30,141,54,107,161,165,110,12,95,44,
+                       140,182,173,193,94,96,155,195,54,155,26,15,175,29,56,132],
+            }),
             None,
         )?;
         Ok(())
@@ -91,9 +98,6 @@ pub mod private_perps {
 
     // ══════════════════════════════════════════════════════════════════════════
     // OPEN POSITION
-    // Queues open_position MPC circuit. Callback sets is_open = true.
-    // idarc: inputs = [EncWrapper{pubkey,nonce,[ciphertext×4]}]
-    //        outputs = [EncWrapper{pubkey,nonce,[ciphertext×4]}]
     // ══════════════════════════════════════════════════════════════════════════
 
     pub fn open_position(
@@ -107,51 +111,48 @@ pub mod private_perps {
         enc_leverage:       [u8; 32],
         enc_side:           [u8; 32],
     ) -> Result<()> {
-        let pos = &mut ctx.accounts.position;
-        pos.owner              = ctx.accounts.payer.key();
-        pos.position_id        = position_id;
-        pos.is_open            = false; // set true in callback
-        pos.is_ghost           = false;
-        pos.opened_at          = Clock::get()?.unix_timestamp;
-        pos.closed_at          = 0;
-        pos.exit_price         = 0;
-        pos.computation_offset = computation_offset;
-        pos.enc_entry_price    = enc_entry_price;
-        pos.enc_size           = enc_size;
-        pos.enc_leverage       = enc_leverage;
-        pos.enc_side           = enc_side;
-        pos.enc_pnl            = [0u8; 32];
+        let opened_at = Clock::get()?.unix_timestamp;
+        let owner = ctx.accounts.payer.key();
+        let pos_key = ctx.accounts.position.key();
+        {
+            let pos = &mut ctx.accounts.position;
+            pos.owner              = owner;
+            pos.position_id        = position_id;
+            pos.is_open            = false;
+            pos.is_ghost           = false;
+            pos.opened_at          = opened_at;
+            pos.closed_at          = 0;
+            pos.exit_price         = 0;
+            pos.computation_offset = computation_offset;
+            pos.enc_entry_price    = enc_entry_price;
+            pos.enc_size           = enc_size;
+            pos.enc_leverage       = enc_leverage;
+            pos.enc_side           = enc_side;
+            pos.enc_pnl            = [0u8; 32];
+        }
 
         let args = vec![
-            Argument::XPubkey(pub_key),
+            Argument::ArcisPubkey(pub_key),
             Argument::PlaintextU128(nonce),
             Argument::EncryptedU128(enc_entry_price),
             Argument::EncryptedU128(enc_size),
             Argument::EncryptedU128(enc_leverage),
             Argument::EncryptedU128(enc_side),
         ];
-
-        queue_computation(
-            ctx.accounts,
-            computation_offset,
-            args,
-            vec![ctx.accounts.position.key()],
-            None,
-        )?;
+        queue_computation(ctx.accounts, computation_offset, args, vec![], None)?;
 
         emit!(PositionQueued {
-            owner:      pos.owner,
-            position_id: pos.key(),
-            timestamp:  pos.opened_at,
+            owner,
+            position_id: pos_key,
+            timestamp:  opened_at,
         });
-
         Ok(())
     }
 
     #[arcium_callback(encrypted_ix = "open_position")]
     pub fn open_position_callback(
         ctx: Context<OpenPositionCallback>,
-        output: ComputationOutputs,
+        _output: ComputationOutputs,
     ) -> Result<()> {
         let pos = &mut ctx.accounts.position;
         pos.is_open = true;
@@ -164,7 +165,7 @@ pub mod private_perps {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // OPEN GHOST POSITION — same circuit, is_ghost=true, PnL never stored
+    // OPEN GHOST POSITION
     // ══════════════════════════════════════════════════════════════════════════
 
     pub fn open_ghost_position(
@@ -178,51 +179,48 @@ pub mod private_perps {
         enc_leverage:       [u8; 32],
         enc_side:           [u8; 32],
     ) -> Result<()> {
-        let pos = &mut ctx.accounts.position;
-        pos.owner              = ctx.accounts.payer.key();
-        pos.position_id        = position_id;
-        pos.is_open            = false;
-        pos.is_ghost           = true;
-        pos.opened_at          = Clock::get()?.unix_timestamp;
-        pos.closed_at          = 0;
-        pos.exit_price         = 0;
-        pos.computation_offset = computation_offset;
-        pos.enc_entry_price    = enc_entry_price;
-        pos.enc_size           = enc_size;
-        pos.enc_leverage       = enc_leverage;
-        pos.enc_side           = enc_side;
-        pos.enc_pnl            = [0u8; 32];
+        let opened_at = Clock::get()?.unix_timestamp;
+        let owner = ctx.accounts.payer.key();
+        let pos_key = ctx.accounts.position.key();
+        {
+            let pos = &mut ctx.accounts.position;
+            pos.owner              = owner;
+            pos.position_id        = position_id;
+            pos.is_open            = false;
+            pos.is_ghost           = true;
+            pos.opened_at          = opened_at;
+            pos.closed_at          = 0;
+            pos.exit_price         = 0;
+            pos.computation_offset = computation_offset;
+            pos.enc_entry_price    = enc_entry_price;
+            pos.enc_size           = enc_size;
+            pos.enc_leverage       = enc_leverage;
+            pos.enc_side           = enc_side;
+            pos.enc_pnl            = [0u8; 32];
+        }
 
         let args = vec![
-            Argument::XPubkey(pub_key),
+            Argument::ArcisPubkey(pub_key),
             Argument::PlaintextU128(nonce),
             Argument::EncryptedU128(enc_entry_price),
             Argument::EncryptedU128(enc_size),
             Argument::EncryptedU128(enc_leverage),
             Argument::EncryptedU128(enc_side),
         ];
-
-        queue_computation(
-            ctx.accounts,
-            computation_offset,
-            args,
-            vec![ctx.accounts.position.key()],
-            None,
-        )?;
+        queue_computation(ctx.accounts, computation_offset, args, vec![], None)?;
 
         emit!(GhostPositionOpened {
-            owner:      pos.owner,
-            position_id: pos.key(),
-            timestamp:  pos.opened_at,
+            owner,
+            position_id: pos_key,
+            timestamp:  opened_at,
         });
-
         Ok(())
     }
 
     #[arcium_callback(encrypted_ix = "open_ghost_position")]
     pub fn open_ghost_position_callback(
         ctx: Context<OpenGhostPositionCallback>,
-        output: ComputationOutputs,
+        _output: ComputationOutputs,
     ) -> Result<()> {
         let pos = &mut ctx.accounts.position;
         pos.is_open = true;
@@ -231,8 +229,6 @@ pub mod private_perps {
 
     // ══════════════════════════════════════════════════════════════════════════
     // CHECK LIQUIDATION
-    // idarc: inputs = [EncWrapper{pubkey,nonce,[ciphertext×4]}, u64]
-    //        outputs = [EncWrapper{pubkey,nonce,[ciphertext×1]}]  ← bool
     // ══════════════════════════════════════════════════════════════════════════
 
     pub fn check_liquidation(
@@ -247,7 +243,7 @@ pub mod private_perps {
         require!(pos.is_open, PrivatePerpsError::PositionNotOpen);
 
         let args = vec![
-            Argument::XPubkey(pub_key),
+            Argument::ArcisPubkey(pub_key),
             Argument::PlaintextU128(nonce),
             Argument::EncryptedU128(pos.enc_entry_price),
             Argument::EncryptedU128(pos.enc_size),
@@ -255,22 +251,14 @@ pub mod private_perps {
             Argument::EncryptedU128(pos.enc_side),
             Argument::PlaintextU64(current_price),
         ];
-
-        queue_computation(
-            ctx.accounts,
-            computation_offset,
-            args,
-            vec![ctx.accounts.position.key()],
-            None,
-        )?;
-
+        queue_computation(ctx.accounts, computation_offset, args, vec![], None)?;
         Ok(())
     }
 
     #[arcium_callback(encrypted_ix = "check_liquidation")]
     pub fn check_liquidation_callback(
         ctx: Context<CheckLiquidationCallback>,
-        output: ComputationOutputs,
+        _output: ComputationOutputs,
     ) -> Result<()> {
         let pos = &ctx.accounts.position;
         emit!(LiquidationChecked {
@@ -283,10 +271,6 @@ pub mod private_perps {
 
     // ══════════════════════════════════════════════════════════════════════════
     // CLOSE POSITION
-    // Ghost: closes immediately, no MPC.
-    // Standard: queues compute_pnl circuit. Callback stores enc_pnl and closes.
-    // idarc: inputs = [EncWrapper{pubkey,nonce,[ciphertext×4]}, u64]
-    //        outputs = [EncWrapper{pubkey,nonce,[ciphertext×1]}]  ← encrypted pnl
     // ══════════════════════════════════════════════════════════════════════════
 
     pub fn close_position(
@@ -317,7 +301,7 @@ pub mod private_perps {
         }
 
         let args = vec![
-            Argument::XPubkey(pub_key),
+            Argument::ArcisPubkey(pub_key),
             Argument::PlaintextU128(nonce),
             Argument::EncryptedU128(pos.enc_entry_price),
             Argument::EncryptedU128(pos.enc_size),
@@ -325,15 +309,7 @@ pub mod private_perps {
             Argument::EncryptedU128(pos.enc_side),
             Argument::PlaintextU64(current_price),
         ];
-
-        queue_computation(
-            ctx.accounts,
-            computation_offset,
-            args,
-            vec![ctx.accounts.position.key()],
-            None,
-        )?;
-
+        queue_computation(ctx.accounts, computation_offset, args, vec![], None)?;
         Ok(())
     }
 
@@ -344,9 +320,8 @@ pub mod private_perps {
     ) -> Result<()> {
         let pos = &mut ctx.accounts.position;
 
-        // Store the encrypted PnL from MPC output
-        if let ComputationOutputs::Bytes(bytes) = &output {
-            if bytes.len() >= 32 {
+        if let ComputationOutputs::Bytes(ref bytes) = output {
+            if !pos.is_ghost && bytes.len() >= 32 {
                 pos.enc_pnl.copy_from_slice(&bytes[..32]);
             }
         }
@@ -361,12 +336,11 @@ pub mod private_perps {
             is_ghost:   pos.is_ghost,
             timestamp:  pos.closed_at,
         });
-
         Ok(())
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // LIQUIDATE POSITION — called after check_liquidation event confirms it
+    // LIQUIDATE POSITION
     // ══════════════════════════════════════════════════════════════════════════
 
     pub fn liquidate_position(
@@ -387,7 +361,6 @@ pub mod private_perps {
             exit_price,
             timestamp:  pos.closed_at,
         });
-
         Ok(())
     }
 }
@@ -398,19 +371,19 @@ pub mod private_perps {
 
 #[account]
 pub struct Position {
-    pub owner:              Pubkey,   // 32
-    pub position_id:        u64,      // 8
-    pub is_open:            bool,     // 1  — false until callback
-    pub is_ghost:           bool,     // 1
-    pub opened_at:          i64,      // 8
-    pub closed_at:          i64,      // 8
-    pub exit_price:         u64,      // 8
-    pub computation_offset: u64,      // 8
-    pub enc_entry_price:    [u8; 32], // 32
-    pub enc_size:           [u8; 32], // 32
-    pub enc_leverage:       [u8; 32], // 32
-    pub enc_side:           [u8; 32], // 32
-    pub enc_pnl:            [u8; 32], // 32
+    pub owner:              Pubkey,
+    pub position_id:        u64,
+    pub is_open:            bool,
+    pub is_ghost:           bool,
+    pub opened_at:          i64,
+    pub closed_at:          i64,
+    pub exit_price:         u64,
+    pub computation_offset: u64,
+    pub enc_entry_price:    [u8; 32],
+    pub enc_size:           [u8; 32],
+    pub enc_leverage:       [u8; 32],
+    pub enc_side:           [u8; 32],
+    pub enc_pnl:            [u8; 32],
 }
 
 impl Position {
@@ -419,8 +392,6 @@ impl Position {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMP DEF INIT CONTEXTS
-// Exact structure from arcium-macros docs:
-// payer, mxe_account, comp_def_account, arcium_program, system_program
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[init_computation_definition_accounts("open_position", payer)]
@@ -428,13 +399,10 @@ impl Position {
 pub struct InitOpenPositionCompDef<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(
-        mut,
-        address = derive_mxe_pda!()
-    )]
+    #[account(mut, address = derive_mxe_pda!())]
     pub mxe_account: Box<Account<'info, PersistentMXEAccount>>,
     #[account(mut)]
-    /// CHECK: comp_def_account, checked by arcium program
+    /// CHECK: checked by arcium program
     pub comp_def_account: UncheckedAccount<'info>,
     pub arcium_program: Program<'info, Arcium>,
     pub system_program: Program<'info, System>,
@@ -445,13 +413,10 @@ pub struct InitOpenPositionCompDef<'info> {
 pub struct InitCheckLiquidationCompDef<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(
-        mut,
-        address = derive_mxe_pda!()
-    )]
+    #[account(mut, address = derive_mxe_pda!())]
     pub mxe_account: Box<Account<'info, PersistentMXEAccount>>,
     #[account(mut)]
-    /// CHECK: comp_def_account, checked by arcium program
+    /// CHECK: checked by arcium program
     pub comp_def_account: UncheckedAccount<'info>,
     pub arcium_program: Program<'info, Arcium>,
     pub system_program: Program<'info, System>,
@@ -462,13 +427,10 @@ pub struct InitCheckLiquidationCompDef<'info> {
 pub struct InitComputePnlCompDef<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(
-        mut,
-        address = derive_mxe_pda!()
-    )]
+    #[account(mut, address = derive_mxe_pda!())]
     pub mxe_account: Box<Account<'info, PersistentMXEAccount>>,
     #[account(mut)]
-    /// CHECK: comp_def_account, checked by arcium program
+    /// CHECK: checked by arcium program
     pub comp_def_account: UncheckedAccount<'info>,
     pub arcium_program: Program<'info, Arcium>,
     pub system_program: Program<'info, System>,
@@ -476,35 +438,37 @@ pub struct InitComputePnlCompDef<'info> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // QUEUE COMPUTATION CONTEXTS
-// Exact structure from arcium-macros docs:
-// payer, mxe_account, mempool_account, executing_pool,
-// comp_def_account, cluster_account, pool_account,
-// clock_account, system_program, arcium_program
+// mempool_account, executing_pool, computation_account = UncheckedAccount
+// (validation.rs: is_valid_mempool_acc_type = is_valid_unchecked_account)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[queue_computation_accounts("open_position", payer)]
 #[derive(Accounts)]
-#[instruction(position_id: u64)]
+#[instruction(position_id: u64, computation_offset: u64)]
 pub struct OpenPosition<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(address = derive_mxe_pda!())]
-    pub mxe_account: Account<'info, PersistentMXEAccount>,
+    pub mxe_account: Box<Account<'info, PersistentMXEAccount>>,
     #[account(mut, address = derive_mempool_pda!())]
-    pub mempool_account: Account<'info, Mempool>,
+    /// CHECK: mempool account
+    pub mempool_account: UncheckedAccount<'info>,
     #[account(mut, address = derive_execpool_pda!())]
-    pub executing_pool: Account<'info, ExecutingPool>,
+    /// CHECK: executing pool account
+    pub executing_pool: UncheckedAccount<'info>,
+    #[account(mut, address = derive_comp_pda!(computation_offset))]
+    /// CHECK: computation account
+    pub computation_account: UncheckedAccount<'info>,
     #[account(address = derive_comp_def_pda!(OPEN_POSITION_COMP_DEF_OFFSET))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     #[account(mut, address = derive_cluster_pda!(mxe_account))]
-    pub cluster_account: Account<'info, Cluster>,
+    pub cluster_account: Box<Account<'info, Cluster>>,
     #[account(mut, address = ARCIUM_STAKING_POOL_ACCOUNT_ADDRESS)]
-    pub pool_account: Account<'info, StakingPoolAccount>,
+    pub pool_account: Box<Account<'info, StakingPoolAccount>>,
     #[account(address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
-    pub clock_account: Account<'info, ClockAccount>,
+    pub clock_account: Box<Account<'info, ClockAccount>>,
     pub system_program: Program<'info, System>,
     pub arcium_program: Program<'info, Arcium>,
-    // Position PDA — unique per trader + position_id
     #[account(
         init,
         payer = payer,
@@ -522,9 +486,9 @@ pub struct OpenPositionCallback<'info> {
     pub payer: Signer<'info>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(address = derive_comp_def_pda!(OPEN_POSITION_COMP_DEF_OFFSET))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
-    /// CHECK: instructions_sysvar
+    /// CHECK: instructions sysvar
     pub instructions_sysvar: AccountInfo<'info>,
     #[account(mut)]
     pub position: Account<'info, Position>,
@@ -532,24 +496,29 @@ pub struct OpenPositionCallback<'info> {
 
 #[queue_computation_accounts("open_position", payer)]
 #[derive(Accounts)]
-#[instruction(position_id: u64)]
+#[instruction(position_id: u64, computation_offset: u64)]
 pub struct OpenGhostPosition<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(address = derive_mxe_pda!())]
-    pub mxe_account: Account<'info, PersistentMXEAccount>,
+    pub mxe_account: Box<Account<'info, PersistentMXEAccount>>,
     #[account(mut, address = derive_mempool_pda!())]
-    pub mempool_account: Account<'info, Mempool>,
+    /// CHECK: mempool account
+    pub mempool_account: UncheckedAccount<'info>,
     #[account(mut, address = derive_execpool_pda!())]
-    pub executing_pool: Account<'info, ExecutingPool>,
+    /// CHECK: executing pool account
+    pub executing_pool: UncheckedAccount<'info>,
+    #[account(mut, address = derive_comp_pda!(computation_offset))]
+    /// CHECK: computation account
+    pub computation_account: UncheckedAccount<'info>,
     #[account(address = derive_comp_def_pda!(OPEN_POSITION_COMP_DEF_OFFSET))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     #[account(mut, address = derive_cluster_pda!(mxe_account))]
-    pub cluster_account: Account<'info, Cluster>,
+    pub cluster_account: Box<Account<'info, Cluster>>,
     #[account(mut, address = ARCIUM_STAKING_POOL_ACCOUNT_ADDRESS)]
-    pub pool_account: Account<'info, StakingPoolAccount>,
+    pub pool_account: Box<Account<'info, StakingPoolAccount>>,
     #[account(address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
-    pub clock_account: Account<'info, ClockAccount>,
+    pub clock_account: Box<Account<'info, ClockAccount>>,
     pub system_program: Program<'info, System>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(
@@ -569,9 +538,9 @@ pub struct OpenGhostPositionCallback<'info> {
     pub payer: Signer<'info>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(address = derive_comp_def_pda!(OPEN_POSITION_COMP_DEF_OFFSET))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
-    /// CHECK: instructions_sysvar
+    /// CHECK: instructions sysvar
     pub instructions_sysvar: AccountInfo<'info>,
     #[account(mut)]
     pub position: Account<'info, Position>,
@@ -579,24 +548,29 @@ pub struct OpenGhostPositionCallback<'info> {
 
 #[queue_computation_accounts("check_liquidation", payer)]
 #[derive(Accounts)]
-#[instruction(position_id: u64)]
+#[instruction(position_id: u64, computation_offset: u64)]
 pub struct CheckLiquidation<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(address = derive_mxe_pda!())]
-    pub mxe_account: Account<'info, PersistentMXEAccount>,
+    pub mxe_account: Box<Account<'info, PersistentMXEAccount>>,
     #[account(mut, address = derive_mempool_pda!())]
-    pub mempool_account: Account<'info, Mempool>,
+    /// CHECK: mempool account
+    pub mempool_account: UncheckedAccount<'info>,
     #[account(mut, address = derive_execpool_pda!())]
-    pub executing_pool: Account<'info, ExecutingPool>,
+    /// CHECK: executing pool account
+    pub executing_pool: UncheckedAccount<'info>,
+    #[account(mut, address = derive_comp_pda!(computation_offset))]
+    /// CHECK: computation account
+    pub computation_account: UncheckedAccount<'info>,
     #[account(address = derive_comp_def_pda!(CHECK_LIQUIDATION_COMP_DEF_OFFSET))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     #[account(mut, address = derive_cluster_pda!(mxe_account))]
-    pub cluster_account: Account<'info, Cluster>,
+    pub cluster_account: Box<Account<'info, Cluster>>,
     #[account(mut, address = ARCIUM_STAKING_POOL_ACCOUNT_ADDRESS)]
-    pub pool_account: Account<'info, StakingPoolAccount>,
+    pub pool_account: Box<Account<'info, StakingPoolAccount>>,
     #[account(address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
-    pub clock_account: Account<'info, ClockAccount>,
+    pub clock_account: Box<Account<'info, ClockAccount>>,
     pub system_program: Program<'info, System>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(
@@ -614,9 +588,9 @@ pub struct CheckLiquidationCallback<'info> {
     pub payer: Signer<'info>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(address = derive_comp_def_pda!(CHECK_LIQUIDATION_COMP_DEF_OFFSET))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
-    /// CHECK: instructions_sysvar
+    /// CHECK: instructions sysvar
     pub instructions_sysvar: AccountInfo<'info>,
     #[account(mut)]
     pub position: Account<'info, Position>,
@@ -624,24 +598,29 @@ pub struct CheckLiquidationCallback<'info> {
 
 #[queue_computation_accounts("compute_pnl", payer)]
 #[derive(Accounts)]
-#[instruction(position_id: u64)]
+#[instruction(position_id: u64, computation_offset: u64)]
 pub struct ClosePosition<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(address = derive_mxe_pda!())]
-    pub mxe_account: Account<'info, PersistentMXEAccount>,
+    pub mxe_account: Box<Account<'info, PersistentMXEAccount>>,
     #[account(mut, address = derive_mempool_pda!())]
-    pub mempool_account: Account<'info, Mempool>,
+    /// CHECK: mempool account
+    pub mempool_account: UncheckedAccount<'info>,
     #[account(mut, address = derive_execpool_pda!())]
-    pub executing_pool: Account<'info, ExecutingPool>,
+    /// CHECK: executing pool account
+    pub executing_pool: UncheckedAccount<'info>,
+    #[account(mut, address = derive_comp_pda!(computation_offset))]
+    /// CHECK: computation account
+    pub computation_account: UncheckedAccount<'info>,
     #[account(address = derive_comp_def_pda!(COMPUTE_PNL_COMP_DEF_OFFSET))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     #[account(mut, address = derive_cluster_pda!(mxe_account))]
-    pub cluster_account: Account<'info, Cluster>,
+    pub cluster_account: Box<Account<'info, Cluster>>,
     #[account(mut, address = ARCIUM_STAKING_POOL_ACCOUNT_ADDRESS)]
-    pub pool_account: Account<'info, StakingPoolAccount>,
+    pub pool_account: Box<Account<'info, StakingPoolAccount>>,
     #[account(address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
-    pub clock_account: Account<'info, ClockAccount>,
+    pub clock_account: Box<Account<'info, ClockAccount>>,
     pub system_program: Program<'info, System>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(
@@ -660,9 +639,9 @@ pub struct ClosePositionCallback<'info> {
     pub payer: Signer<'info>,
     pub arcium_program: Program<'info, Arcium>,
     #[account(address = derive_comp_def_pda!(COMPUTE_PNL_COMP_DEF_OFFSET))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
-    /// CHECK: instructions_sysvar
+    /// CHECK: instructions sysvar
     pub instructions_sysvar: AccountInfo<'info>,
     #[account(mut)]
     pub position: Account<'info, Position>,

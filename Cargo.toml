@@ -7,3 +7,6 @@ resolver = "2"
 
 [profile.release]
 overflow-checks = true
+
+[patch.crates-io]
+async-lock = { git = "https://github.com/smol-rs/async-lock", tag = "v3.3.0" }

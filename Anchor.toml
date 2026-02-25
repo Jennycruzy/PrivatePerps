@@ -1,12 +1,12 @@
 [toolchain]
-anchor_version = "0.32.1"
+anchor_version = "0.31.1"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.devnet]
-private_perps = "BcQ9phJFBSQDxcCupVYqUdbJDHSGcivCnaeNnCsoYhUR"
+private_perps = "By8ZwAFK26UhgwkVQXP3KE6miD4mgEz6eQ7QTS3X8FHv"
 
 [registry]
 url = "https://api.apr.dev"
