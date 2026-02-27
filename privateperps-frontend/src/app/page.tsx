@@ -222,20 +222,26 @@ export default function TradingPage() {
     anchor.setProvider(provider);
 
     try {
-      // Anchor 0.32: IDL has address field, pass IDL + provider only
-      programRef.current = new anchor.Program(IDL as any, provider);
-      initRef.current    = true;
-      console.log("✅ Program initialized:", PROGRAM_ID.toString());
-    } catch (e) {
-      console.error("Program init error:", e);
-      try {
-        // Fallback for older Anchor versions
-        programRef.current = new anchor.Program(IDL as any, PROGRAM_ID, provider);
-        initRef.current    = true;
-        console.log("✅ Program initialized (fallback)");
-      } catch (e2) { console.error("Program init fallback failed:", e2); }
-    }
+  // ✅ Anchor ≥0.30 (IDL contains program address)
+ programRef.current = new anchor.Program(IDL as any, provider);
+  initRef.current = true;
+  console.log("✅ Program initialized (modern Anchor):", PROGRAM_ID.toString());
+} catch (e) {
+  console.warn("Modern Anchor init failed, trying legacy init…", e);
 
+  try {
+    // ✅ Anchor <0.30 fallback
+    programRef.current = new anchor.Program(
+      IDL as any,
+      PROGRAM_ID,
+      provider
+    );
+    initRef.current = true;
+    console.log("✅ Program initialized (legacy Anchor):", PROGRAM_ID.toString());
+  } catch (e2) {
+    console.error("❌ Program init fallback failed:", e2);
+  }
+}
     if (mockBalance === null) {
       setMockBalance(10000);
       showToast("🎉 10,000 mock USDC added for testing", "ok");

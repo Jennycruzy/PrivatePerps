@@ -8,22 +8,61 @@
   },
   "instructions": [
     {
-      "name": "close_position",
+      "name": "check_liquidation",
       "discriminator": [
-        123,
-        134,
-        81,
-        0,
-        49,
-        68,
-        98,
-        98
+        17,
+        164,
+        40,
+        249,
+        253,
+        162,
+        132,
+        182
       ],
       "accounts": [
         {
-          "name": "trader",
+          "name": "payer",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "mxe_account"
+        },
+        {
+          "name": "mempool_account",
+          "writable": true
+        },
+        {
+          "name": "executing_pool",
+          "writable": true
+        },
+        {
+          "name": "computation_account",
+          "writable": true
+        },
+        {
+          "name": "comp_def_account"
+        },
+        {
+          "name": "cluster_account",
+          "writable": true
+        },
+        {
+          "name": "pool_account",
+          "writable": true,
+          "address": "DXHqHhBGNM58RLk438UiEbGe9137A7zJc6JHKN3qMZoB"
+        },
+        {
+          "name": "clock_account",
+          "address": "FHriyvoZotYiFnbUzKFjzRSb2NiaC8RPWY7jtKuKhg65"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
         },
         {
           "name": "position",
@@ -45,7 +84,7 @@
               },
               {
                 "kind": "account",
-                "path": "trader"
+                "path": "payer"
               },
               {
                 "kind": "arg",
@@ -53,31 +92,351 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "_position_id",
+          "name": "position_id",
           "type": "u64"
         },
         {
-          "name": "current_price",
+          "name": "computation_offset",
           "type": "u64"
         },
         {
-          "name": "encrypted_pnl",
+          "name": "pub_key",
           "type": {
             "array": [
               "u8",
               32
             ]
           }
+        },
+        {
+          "name": "nonce",
+          "type": "u128"
+        },
+        {
+          "name": "current_price",
+          "type": "u64"
         }
       ]
+    },
+    {
+      "name": "check_liquidation_callback",
+      "discriminator": [
+        162,
+        132,
+        28,
+        60,
+        219,
+        80,
+        53,
+        100
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
+        },
+        {
+          "name": "comp_def_account"
+        },
+        {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "position",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "_output",
+          "type": {
+            "defined": {
+              "name": "ComputationOutputs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "close_position",
+      "discriminator": [
+        123,
+        134,
+        81,
+        0,
+        49,
+        68,
+        98,
+        98
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mxe_account"
+        },
+        {
+          "name": "mempool_account",
+          "writable": true
+        },
+        {
+          "name": "executing_pool",
+          "writable": true
+        },
+        {
+          "name": "computation_account",
+          "writable": true
+        },
+        {
+          "name": "comp_def_account"
+        },
+        {
+          "name": "cluster_account",
+          "writable": true
+        },
+        {
+          "name": "pool_account",
+          "writable": true,
+          "address": "DXHqHhBGNM58RLk438UiEbGe9137A7zJc6JHKN3qMZoB"
+        },
+        {
+          "name": "clock_account",
+          "address": "FHriyvoZotYiFnbUzKFjzRSb2NiaC8RPWY7jtKuKhg65"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "payer"
+              },
+              {
+                "kind": "arg",
+                "path": "position_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "position_id",
+          "type": "u64"
+        },
+        {
+          "name": "computation_offset",
+          "type": "u64"
+        },
+        {
+          "name": "pub_key",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "nonce",
+          "type": "u128"
+        },
+        {
+          "name": "current_price",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "close_position_callback",
+      "discriminator": [
+        180,
+        246,
+        26,
+        6,
+        16,
+        117,
+        72,
+        12
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
+        },
+        {
+          "name": "comp_def_account"
+        },
+        {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "position",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "output",
+          "type": {
+            "defined": {
+              "name": "ComputationOutputs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "init_check_liquidation_comp_def",
+      "discriminator": [
+        41,
+        231,
+        183,
+        3,
+        234,
+        174,
+        14,
+        111
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mxe_account",
+          "writable": true
+        },
+        {
+          "name": "comp_def_account",
+          "writable": true
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_compute_pnl_comp_def",
+      "discriminator": [
+        204,
+        248,
+        130,
+        124,
+        223,
+        156,
+        184,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mxe_account",
+          "writable": true
+        },
+        {
+          "name": "comp_def_account",
+          "writable": true
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_open_position_comp_def",
+      "discriminator": [
+        129,
+        214,
+        202,
+        232,
+        78,
+        135,
+        150,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mxe_account",
+          "writable": true
+        },
+        {
+          "name": "comp_def_account",
+          "writable": true
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "liquidate_position",
@@ -151,9 +510,48 @@
       ],
       "accounts": [
         {
-          "name": "trader",
+          "name": "payer",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "mxe_account"
+        },
+        {
+          "name": "mempool_account",
+          "writable": true
+        },
+        {
+          "name": "executing_pool",
+          "writable": true
+        },
+        {
+          "name": "computation_account",
+          "writable": true
+        },
+        {
+          "name": "comp_def_account"
+        },
+        {
+          "name": "cluster_account",
+          "writable": true
+        },
+        {
+          "name": "pool_account",
+          "writable": true,
+          "address": "DXHqHhBGNM58RLk438UiEbGe9137A7zJc6JHKN3qMZoB"
+        },
+        {
+          "name": "clock_account",
+          "address": "FHriyvoZotYiFnbUzKFjzRSb2NiaC8RPWY7jtKuKhg65"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
         },
         {
           "name": "position",
@@ -175,7 +573,7 @@
               },
               {
                 "kind": "account",
-                "path": "trader"
+                "path": "payer"
               },
               {
                 "kind": "arg",
@@ -183,10 +581,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -195,7 +589,11 @@
           "type": "u64"
         },
         {
-          "name": "encrypted_entry_price",
+          "name": "computation_offset",
+          "type": "u64"
+        },
+        {
+          "name": "pub_key",
           "type": {
             "array": [
               "u8",
@@ -204,7 +602,11 @@
           }
         },
         {
-          "name": "encrypted_size",
+          "name": "nonce",
+          "type": "u128"
+        },
+        {
+          "name": "enc_entry_price",
           "type": {
             "array": [
               "u8",
@@ -213,7 +615,7 @@
           }
         },
         {
-          "name": "encrypted_leverage",
+          "name": "enc_size",
           "type": {
             "array": [
               "u8",
@@ -222,12 +624,66 @@
           }
         },
         {
-          "name": "encrypted_side",
+          "name": "enc_leverage",
           "type": {
             "array": [
               "u8",
               32
             ]
+          }
+        },
+        {
+          "name": "enc_side",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "open_ghost_position_callback",
+      "discriminator": [
+        93,
+        152,
+        103,
+        200,
+        88,
+        220,
+        18,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
+        },
+        {
+          "name": "comp_def_account"
+        },
+        {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "position",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "_output",
+          "type": {
+            "defined": {
+              "name": "ComputationOutputs"
+            }
           }
         }
       ]
@@ -246,9 +702,48 @@
       ],
       "accounts": [
         {
-          "name": "trader",
+          "name": "payer",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "mxe_account"
+        },
+        {
+          "name": "mempool_account",
+          "writable": true
+        },
+        {
+          "name": "executing_pool",
+          "writable": true
+        },
+        {
+          "name": "computation_account",
+          "writable": true
+        },
+        {
+          "name": "comp_def_account"
+        },
+        {
+          "name": "cluster_account",
+          "writable": true
+        },
+        {
+          "name": "pool_account",
+          "writable": true,
+          "address": "DXHqHhBGNM58RLk438UiEbGe9137A7zJc6JHKN3qMZoB"
+        },
+        {
+          "name": "clock_account",
+          "address": "FHriyvoZotYiFnbUzKFjzRSb2NiaC8RPWY7jtKuKhg65"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
         },
         {
           "name": "position",
@@ -270,7 +765,7 @@
               },
               {
                 "kind": "account",
-                "path": "trader"
+                "path": "payer"
               },
               {
                 "kind": "arg",
@@ -278,10 +773,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -290,7 +781,11 @@
           "type": "u64"
         },
         {
-          "name": "encrypted_entry_price",
+          "name": "computation_offset",
+          "type": "u64"
+        },
+        {
+          "name": "pub_key",
           "type": {
             "array": [
               "u8",
@@ -299,7 +794,11 @@
           }
         },
         {
-          "name": "encrypted_size",
+          "name": "nonce",
+          "type": "u128"
+        },
+        {
+          "name": "enc_entry_price",
           "type": {
             "array": [
               "u8",
@@ -308,7 +807,7 @@
           }
         },
         {
-          "name": "encrypted_leverage",
+          "name": "enc_size",
           "type": {
             "array": [
               "u8",
@@ -317,7 +816,16 @@
           }
         },
         {
-          "name": "encrypted_side",
+          "name": "enc_leverage",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "enc_side",
           "type": {
             "array": [
               "u8",
@@ -326,9 +834,106 @@
           }
         }
       ]
+    },
+    {
+      "name": "open_position_callback",
+      "discriminator": [
+        137,
+        83,
+        174,
+        196,
+        194,
+        90,
+        89,
+        250
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "arcium_program",
+          "address": "BKck65TgoKRokMjQM3datB9oRwJ8rAj2jxPXvHXUvcL6"
+        },
+        {
+          "name": "comp_def_account"
+        },
+        {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "position",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "_output",
+          "type": {
+            "defined": {
+              "name": "ComputationOutputs"
+            }
+          }
+        }
+      ]
     }
   ],
   "accounts": [
+    {
+      "name": "ClockAccount",
+      "discriminator": [
+        152,
+        171,
+        158,
+        195,
+        75,
+        61,
+        51,
+        8
+      ]
+    },
+    {
+      "name": "Cluster",
+      "discriminator": [
+        236,
+        225,
+        118,
+        228,
+        173,
+        106,
+        18,
+        60
+      ]
+    },
+    {
+      "name": "ComputationDefinitionAccount",
+      "discriminator": [
+        245,
+        176,
+        217,
+        221,
+        253,
+        104,
+        172,
+        200
+      ]
+    },
+    {
+      "name": "PersistentMXEAccount",
+      "discriminator": [
+        32,
+        115,
+        16,
+        240,
+        209,
+        25,
+        92,
+        165
+      ]
+    },
     {
       "name": "Position",
       "discriminator": [
@@ -340,6 +945,19 @@
         64,
         247,
         208
+      ]
+    },
+    {
+      "name": "StakingPoolAccount",
+      "discriminator": [
+        197,
+        149,
+        223,
+        199,
+        86,
+        73,
+        227,
+        77
       ]
     }
   ],
@@ -355,6 +973,19 @@
         127,
         154,
         246
+      ]
+    },
+    {
+      "name": "LiquidationChecked",
+      "discriminator": [
+        19,
+        216,
+        119,
+        205,
+        179,
+        103,
+        255,
+        187
       ]
     },
     {
@@ -395,6 +1026,19 @@
         101,
         121
       ]
+    },
+    {
+      "name": "PositionQueued",
+      "discriminator": [
+        130,
+        242,
+        57,
+        162,
+        27,
+        78,
+        66,
+        61
+      ]
     }
   ],
   "errors": [
@@ -411,6 +1055,413 @@
   ],
   "types": [
     {
+      "name": "Activation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "activation_epoch",
+            "type": {
+              "defined": {
+                "name": "Epoch"
+              }
+            }
+          },
+          {
+            "name": "deactivation_epoch",
+            "type": {
+              "defined": {
+                "name": "Epoch"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CircuitSource",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "OnChain",
+            "fields": [
+              {
+                "defined": {
+                  "name": "OnChainCircuitSource"
+                }
+              }
+            ]
+          },
+          {
+            "name": "OffChain",
+            "fields": [
+              {
+                "defined": {
+                  "name": "OffChainCircuitSource"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClockAccount",
+      "docs": [
+        "An account storing the current network epoch"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "start_epoch",
+            "type": {
+              "defined": {
+                "name": "Epoch"
+              }
+            }
+          },
+          {
+            "name": "current_epoch",
+            "type": {
+              "defined": {
+                "name": "Epoch"
+              }
+            }
+          },
+          {
+            "name": "start_epoch_timestamp",
+            "type": {
+              "defined": {
+                "name": "Timestamp"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Cluster",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "max_size",
+            "type": "u32"
+          },
+          {
+            "name": "activation",
+            "type": {
+              "defined": {
+                "name": "Activation"
+              }
+            }
+          },
+          {
+            "name": "max_capacity",
+            "type": "u64"
+          },
+          {
+            "name": "cu_price",
+            "type": "u64"
+          },
+          {
+            "name": "cu_price_proposals",
+            "type": {
+              "array": [
+                "u64",
+                32
+              ]
+            }
+          },
+          {
+            "name": "last_updated_epoch",
+            "type": {
+              "defined": {
+                "name": "Epoch"
+              }
+            }
+          },
+          {
+            "name": "encryption_key",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "composition_rules",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "ClusterCompositionRules"
+                }
+              }
+            }
+          },
+          {
+            "name": "mxes",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "nodes",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "NodeRef"
+                }
+              }
+            }
+          },
+          {
+            "name": "pending_nodes",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "NodeRef"
+                }
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClusterCompositionRules",
+      "docs": [
+        "migration_jurisdiction_filter is the locations as",
+        "[ISO 3166-1 alpha-2](https://www.iso.org/iso-3166-country-codes.html) country code"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "migration_jurisdiction_filter",
+            "type": "bytes"
+          },
+          {
+            "name": "filter_positive",
+            "type": "bool"
+          },
+          {
+            "name": "node_blacklist",
+            "type": {
+              "vec": "u32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClusterReference",
+      "docs": [
+        "A reference to a [ClusterAccount]."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "offset",
+            "type": "u32"
+          },
+          {
+            "name": "encryption_scheme",
+            "type": {
+              "defined": {
+                "name": "EncryptionScheme"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ComputationDefinitionAccount",
+      "docs": [
+        "An account representing a [ComputationDefinition] in a MXE."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "finalization_authority",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "finalize_during_callback",
+            "type": "bool"
+          },
+          {
+            "name": "cu_amount",
+            "type": "u64"
+          },
+          {
+            "name": "definition",
+            "type": {
+              "defined": {
+                "name": "ComputationDefinitionMeta"
+              }
+            }
+          },
+          {
+            "name": "circuit_source",
+            "type": {
+              "defined": {
+                "name": "CircuitSource"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ComputationDefinitionMeta",
+      "docs": [
+        "A computation definition for execution in a MXE."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "circuit_len",
+            "type": "u32"
+          },
+          {
+            "name": "signature",
+            "type": {
+              "defined": {
+                "name": "ComputationSignature"
+              }
+            }
+          },
+          {
+            "name": "callback_discriminator",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ComputationOutputs",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Bytes",
+            "fields": [
+              "bytes"
+            ]
+          },
+          {
+            "name": "Abort"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ComputationSignature",
+      "docs": [
+        "The signature of a computation defined in a [ComputationDefinition]."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "parameters",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Parameter"
+                }
+              }
+            }
+          },
+          {
+            "name": "outputs",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Output"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "EncryptionScheme",
+      "docs": [
+        "The encryption scheme used to encrypt the data in the Cluster"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "None"
+          },
+          {
+            "name": "ClusterEncryption"
+          },
+          {
+            "name": "MXEEncryption",
+            "fields": [
+              {
+                "option": {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Epoch",
+      "docs": [
+        "The network epoch"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          "u64"
+        ]
+      }
+    },
+    {
       "name": "GhostPositionOpened",
       "type": {
         "kind": "struct",
@@ -426,6 +1477,225 @@
           {
             "name": "timestamp",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidationChecked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodeRef",
+      "docs": [
+        "A reference to a node in the cluster.",
+        "The offset is to derive the Node Account.",
+        "The current_total_rewards is the total rewards the node has received so far in the current",
+        "epoch."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "offset",
+            "type": "u32"
+          },
+          {
+            "name": "current_total_rewards",
+            "type": "u64"
+          },
+          {
+            "name": "vote",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OffChainCircuitSource",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source",
+            "type": "string"
+          },
+          {
+            "name": "hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "OnChainCircuitSource",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "is_completed",
+            "type": "bool"
+          },
+          {
+            "name": "upload_auth",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Output",
+      "docs": [
+        "An output of a computation.",
+        "We currently don't support encrypted outputs yet since encrypted values are passed via",
+        "data objects."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "PlaintextBool"
+          },
+          {
+            "name": "PlaintextU8"
+          },
+          {
+            "name": "PlaintextU16"
+          },
+          {
+            "name": "PlaintextU32"
+          },
+          {
+            "name": "PlaintextU64"
+          },
+          {
+            "name": "PlaintextU128"
+          },
+          {
+            "name": "Ciphertext"
+          },
+          {
+            "name": "ArcisPubkey"
+          },
+          {
+            "name": "PlaintextFloat"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Parameter",
+      "docs": [
+        "A parameter of a computation.",
+        "We differentiate between plaintext and encrypted parameters and data objects.",
+        "Plaintext parameters are directly provided as their value.",
+        "Encrypted parameters are provided as an offchain reference to the data.",
+        "Data objects are provided as a reference to the data object account."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "PlaintextBool"
+          },
+          {
+            "name": "PlaintextU8"
+          },
+          {
+            "name": "PlaintextU16"
+          },
+          {
+            "name": "PlaintextU32"
+          },
+          {
+            "name": "PlaintextU64"
+          },
+          {
+            "name": "PlaintextU128"
+          },
+          {
+            "name": "Ciphertext"
+          },
+          {
+            "name": "ArcisPubkey"
+          },
+          {
+            "name": "ArcisSignature"
+          },
+          {
+            "name": "PlaintextFloat"
+          },
+          {
+            "name": "ManticoreAlgo"
+          },
+          {
+            "name": "InputDataset"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PersistentMXEAccount",
+      "docs": [
+        "A persistent MPC Execution Environment."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "cluster",
+            "type": {
+              "defined": {
+                "name": "ClusterReference"
+              }
+            }
+          },
+          {
+            "name": "fallback_clusters",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ClusterReference"
+                }
+              }
+            }
+          },
+          {
+            "name": "computation_definitions",
+            "type": {
+              "vec": "u32"
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -464,7 +1734,11 @@
             "type": "u64"
           },
           {
-            "name": "encrypted_entry_price",
+            "name": "computation_offset",
+            "type": "u64"
+          },
+          {
+            "name": "enc_entry_price",
             "type": {
               "array": [
                 "u8",
@@ -473,7 +1747,7 @@
             }
           },
           {
-            "name": "encrypted_size",
+            "name": "enc_size",
             "type": {
               "array": [
                 "u8",
@@ -482,7 +1756,7 @@
             }
           },
           {
-            "name": "encrypted_leverage",
+            "name": "enc_leverage",
             "type": {
               "array": [
                 "u8",
@@ -491,7 +1765,7 @@
             }
           },
           {
-            "name": "encrypted_side",
+            "name": "enc_side",
             "type": {
               "array": [
                 "u8",
@@ -500,7 +1774,7 @@
             }
           },
           {
-            "name": "encrypted_pnl",
+            "name": "enc_pnl",
             "type": {
               "array": [
                 "u8",
@@ -579,6 +1853,50 @@
           {
             "name": "timestamp",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionQueued",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakingPoolAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Timestamp",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "timestamp",
+            "type": "u64"
           }
         ]
       }

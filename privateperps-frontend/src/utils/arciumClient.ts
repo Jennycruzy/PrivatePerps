@@ -1,159 +1,81 @@
 import * as anchor from "@coral-xyz/anchor";
 import { x25519, RescueCipher } from "@arcium-hq/client";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 
-export const PROGRAM_ID = new PublicKey(
-  process.env.NEXT_PUBLIC_PROGRAM_ID ||
-    "By8ZwAFK26UhgwkVQXP3KE6miD4mgEz6eQ7QTS3X8FHv"
-);
+export const PROGRAM_ID  = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID || "By8ZwAFK26UhgwkVQXP3KE6miD4mgEz6eQ7QTS3X8FHv");
+const ARCIUM_PROG        = new PublicKey("2iBUASRfDHgEkuZ91Lvos5NxwnmiQGTJCvpgBCHcFBd5");
+const ARCIUM_STAKING     = new PublicKey("3C3n8JGYqBCMQbFTGNNJnnizoUJJFkGBruPpBFnSAjDW");
+const ARCIUM_CLOCK       = new PublicKey("5GDcZeEHXoUgBq58YPMBHHgdxMhNBtV3L5GNjdaB5Bh3");
+const MXE_X25519_PUBKEY  = new Uint8Array([0xbc,0x5b,0x7b,0xac,0xcb,0x2e,0x1d,0xb5,0x9b,0xec,0xb5,0x96,0x4e,0x6f,0xe3,0xc7,0xe9,0x80,0x7f,0x4e,0x60,0x0a,0x06,0x1f,0x45,0x6f,0xfb,0x02,0xd2,0xbe,0xb3,0x70]);
+const COMP_DEF_OFFSETS   = { open_position: 3935201159, check_liquidation: 2996691951, compute_pnl: 4043984865 };
 
-// MXE X25519 public key — finalized on devnet cluster 456
-const MXE_X25519_PUBKEY = new Uint8Array([
-  0xbc, 0x5b, 0x7b, 0xac, 0xcb, 0x2e, 0x1d, 0xb5,
-  0x9b, 0xec, 0xb5, 0x96, 0x4e, 0x6f, 0xe3, 0xc7,
-  0xe9, 0x80, 0x7f, 0x4e, 0x60, 0x0a, 0x06, 0x1f,
-  0x45, 0x6f, 0xfb, 0x02, 0xd2, 0xbe, 0xb3, 0x70,
-]);
+function mxePDA()                   { return PublicKey.findProgramAddressSync([Buffer.from("mxe"), PROGRAM_ID.toBytes()], ARCIUM_PROG)[0]; }
+function mempoolPDA()               { return PublicKey.findProgramAddressSync([Buffer.from("mempool"), PROGRAM_ID.toBytes()], ARCIUM_PROG)[0]; }
+function execPoolPDA()              { return PublicKey.findProgramAddressSync([Buffer.from("executing_pool"), PROGRAM_ID.toBytes()], ARCIUM_PROG)[0]; }
+function compDefPDA(o: number)      { const b=Buffer.alloc(4);b.writeUInt32LE(o);return PublicKey.findProgramAddressSync([Buffer.from("comp_def"),PROGRAM_ID.toBytes(),b],ARCIUM_PROG)[0]; }
+function compPDA(o: bigint)         { const b=Buffer.alloc(8);b.writeBigUInt64LE(o);return PublicKey.findProgramAddressSync([Buffer.from("comp"),PROGRAM_ID.toBytes(),b],ARCIUM_PROG)[0]; }
+function clusterPDA(o=456)          { const b=Buffer.alloc(4);b.writeUInt32LE(o);return PublicKey.findProgramAddressSync([Buffer.from("cluster"),b],ARCIUM_PROG)[0]; }
 
 export interface ArciumEncryptedPosition {
-  encryptedEntryPrice: number[];
-  encryptedSize: number[];
-  encryptedLeverage: number[];
-  encryptedSide: number[];
+  encryptedEntryPrice: number[]; encryptedSize: number[];
+  encryptedLeverage: number[];   encryptedSide: number[];
+  pubKey: number[];  nonce: anchor.BN;
+  positionId: anchor.BN; computationOffset: anchor.BN;
   cipher: RescueCipher;
-  nonce: Uint8Array;
-  positionId: anchor.BN; // unique u64 per position — multiple positions per wallet
 }
 
-// Random unique position ID using browser-native crypto (no Node crypto needed)
-export function generatePositionId(): anchor.BN {
-  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8));
-  let val = BigInt(0);
-  for (let i = 7; i >= 0; i--) {
-    val = (val << BigInt(8)) | BigInt(bytes[i]);
-  }
-  val = val & BigInt("0xFFFFFFFFFFFFFFFF");
-  return new anchor.BN(val.toString());
+export function getPositionPDA(trader: PublicKey, positionId: anchor.BN): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("position"), trader.toBuffer(), positionId.toArrayLike(Buffer,"le",8)], PROGRAM_ID
+  )[0];
 }
 
-// Derive position PDA: ["position", trader_pubkey, position_id_le_bytes]
-// Unique position_id => unique PDA => unlimited positions per wallet
-export function getPositionPDA(
-  traderPubkey: PublicKey,
-  positionId: anchor.BN
-): PublicKey {
-  const idBytes = positionId.toArrayLike(Buffer, "le", 8);
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("position"), traderPubkey.toBuffer(), idBytes],
-    PROGRAM_ID
-  );
-  return pda;
-}
-
-// Encrypt all position fields via Arcium X25519 ECDH + RescueCipher
-export async function encryptPosition(
-  provider: anchor.AnchorProvider,
-  entryPrice: number,
-  sizeUsd: number,
-  leverage: number,
-  side: "long" | "short"
-): Promise<ArciumEncryptedPosition> {
-  const clientPrivateKey = x25519.utils.randomSecretKey();
-  const sharedSecret = x25519.getSharedSecret(clientPrivateKey, MXE_X25519_PUBKEY);
-  const cipher = new RescueCipher(sharedSecret);
-
-  const inputs = [
-    BigInt(Math.floor(entryPrice * 100)),
-    BigInt(Math.floor(sizeUsd * 100)),
-    BigInt(leverage),
-    BigInt(side === "long" ? 1 : 0),
-  ];
-
-  const nonce = globalThis.crypto.getRandomValues(new Uint8Array(16));
-  const ciphertext = cipher.encrypt(inputs, nonce);
-  const positionId = generatePositionId();
-
+export async function encryptPosition(_p: any, entryPrice: number, sizeUsd: number, leverage: number, side: "long"|"short"): Promise<ArciumEncryptedPosition> {
+  const priv   = x25519.utils.randomSecretKey();
+  const shared = x25519.getSharedSecret(priv, MXE_X25519_PUBKEY);
+  const pubKey = Array.from(x25519.getPublicKey(priv));
+  const cipher = new RescueCipher(shared);
+  const nonceBuf = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  const nonce  = new anchor.BN(Buffer.from(nonceBuf).readBigUInt64LE(0).toString());
+  const ct     = cipher.encrypt([BigInt(Math.floor(entryPrice*100)),BigInt(Math.floor(sizeUsd*100)),BigInt(leverage),BigInt(side==="long"?1:0)], nonceBuf);
+  const idB    = globalThis.crypto.getRandomValues(new Uint8Array(8));
+  const posId  = BigInt("0x"+Array.from(idB).map(b=>b.toString(16).padStart(2,"0")).join(""));
+  const compOff= BigInt(Date.now())*1000n+BigInt(Math.floor(Math.random()*1000));
   return {
-    encryptedEntryPrice: Array.from(ciphertext[0]),
-    encryptedSize:       Array.from(ciphertext[1]),
-    encryptedLeverage:   Array.from(ciphertext[2]),
-    encryptedSide:       Array.from(ciphertext[3]),
-    cipher,
-    nonce,
-    positionId,
+    encryptedEntryPrice:Array.from(ct[0] as Uint8Array), encryptedSize:Array.from(ct[1] as Uint8Array),
+    encryptedLeverage:Array.from(ct[2] as Uint8Array),   encryptedSide:Array.from(ct[3] as Uint8Array),
+    pubKey, nonce, cipher,
+    positionId:new anchor.BN(posId.toString()), computationOffset:new anchor.BN(compOff.toString()),
   };
 }
 
-// open_position — standard, PnL revealed on close
-export async function submitOpenPosition(
-  program: anchor.Program<any>,
-  encrypted: ArciumEncryptedPosition,
-  traderPubkey: PublicKey
-): Promise<string> {
-  const positionPDA = getPositionPDA(traderPubkey, encrypted.positionId);
-  return await program.methods
-    .openPosition(
-      encrypted.positionId,
-      encrypted.encryptedEntryPrice,
-      encrypted.encryptedSize,
-      encrypted.encryptedLeverage,
-      encrypted.encryptedSide
-    )
-    .accounts({
-      trader:        traderPubkey,
-      position:      positionPDA,
-      systemProgram: anchor.web3.SystemProgram.programId,
-    })
-    .rpc({ skipPreflight: false, commitment: "confirmed" });
+function queueAccs(defOffset: number, compOff: bigint) {
+  return { mxeAccount:mxePDA(), mempoolAccount:mempoolPDA(), executingPool:execPoolPDA(),
+    computationAccount:compPDA(compOff), compDefAccount:compDefPDA(defOffset),
+    clusterAccount:clusterPDA(), poolAccount:ARCIUM_STAKING, clockAccount:ARCIUM_CLOCK,
+    systemProgram:SystemProgram.programId, arciumProgram:ARCIUM_PROG };
 }
 
-// open_ghost_position — fully dark, PnL NEVER stored or revealed on-chain
-export async function submitOpenGhostPosition(
-  program: anchor.Program<any>,
-  encrypted: ArciumEncryptedPosition,
-  traderPubkey: PublicKey
-): Promise<string> {
-  const positionPDA = getPositionPDA(traderPubkey, encrypted.positionId);
-  return await program.methods
-    .openGhostPosition(
-      encrypted.positionId,
-      encrypted.encryptedEntryPrice,
-      encrypted.encryptedSize,
-      encrypted.encryptedLeverage,
-      encrypted.encryptedSide
-    )
-    .accounts({
-      trader:        traderPubkey,
-      position:      positionPDA,
-      systemProgram: anchor.web3.SystemProgram.programId,
-    })
-    .rpc({ skipPreflight: false, commitment: "confirmed" });
+export async function submitOpenPosition(program: anchor.Program<any>, enc: ArciumEncryptedPosition, trader: PublicKey): Promise<string> {
+  const off = BigInt(enc.computationOffset.toString());
+  return program.methods.openPosition(enc.positionId,enc.computationOffset,enc.pubKey,enc.nonce,enc.encryptedEntryPrice,enc.encryptedSize,enc.encryptedLeverage,enc.encryptedSide)
+    .accounts({ payer:trader, position:getPositionPDA(trader,enc.positionId), ...queueAccs(COMP_DEF_OFFSETS.open_position,off) }).rpc({commitment:"confirmed"});
 }
 
-// close_position
-// IDL arg is named `_position_id` but Anchor passes by position order, not name.
-// PDA seed in IDL uses `position_id` (without underscore) — Anchor resolves it
-// from the arg at index 0 regardless of the underscore prefix.
-export async function submitClosePosition(
-  program: anchor.Program<any>,
-  traderPubkey: PublicKey,
-  positionId: anchor.BN,
-  currentPrice: number,
-  isGhost: boolean
-): Promise<{ signature: string }> {
-  const positionPDA    = getPositionPDA(traderPubkey, positionId);
-  const currentPriceBN = new anchor.BN(Math.floor(currentPrice * 100));
-  // Ghost: send zeroed PnL — on-chain program ignores it due to is_ghost flag
-  const encryptedPnl   = new Array(32).fill(0);
+export async function submitOpenGhostPosition(program: anchor.Program<any>, enc: ArciumEncryptedPosition, trader: PublicKey): Promise<string> {
+  const off = BigInt(enc.computationOffset.toString());
+  return program.methods.openGhostPosition(enc.positionId,enc.computationOffset,enc.pubKey,enc.nonce,enc.encryptedEntryPrice,enc.encryptedSize,enc.encryptedLeverage,enc.encryptedSide)
+    .accounts({ payer:trader, position:getPositionPDA(trader,enc.positionId), ...queueAccs(COMP_DEF_OFFSETS.open_position,off) }).rpc({commitment:"confirmed"});
+}
 
-  const signature = await program.methods
-    .closePosition(positionId, currentPriceBN, encryptedPnl)
-    .accounts({
-      trader:        traderPubkey,
-      position:      positionPDA,
-      systemProgram: anchor.web3.SystemProgram.programId,
-    })
-    .rpc({ skipPreflight: false, commitment: "confirmed" });
-
+export async function submitClosePosition(program: anchor.Program<any>, trader: PublicKey, positionId: anchor.BN, currentPrice: number, _isGhost: boolean): Promise<{signature:string}> {
+  const compOff = BigInt(Date.now())*1000n+BigInt(Math.floor(Math.random()*1000));
+  const priv=x25519.utils.randomSecretKey();
+  const shared=x25519.getSharedSecret(priv,MXE_X25519_PUBKEY);
+  const pubKey=Array.from(x25519.getPublicKey(priv));
+  const nonceBuf=globalThis.crypto.getRandomValues(new Uint8Array(16));
+  const nonce=new anchor.BN(Buffer.from(nonceBuf).readBigUInt64LE(0).toString());
+  const signature = await program.methods.closePosition(positionId,new anchor.BN(compOff.toString()),pubKey,nonce,new anchor.BN(Math.floor(currentPrice*100)))
+    .accounts({ payer:trader, position:getPositionPDA(trader,positionId), ...queueAccs(COMP_DEF_OFFSETS.compute_pnl,compOff) }).rpc({commitment:"confirmed"});
   return { signature };
 }
